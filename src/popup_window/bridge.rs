@@ -492,6 +492,11 @@ pub(super) fn start_background_bridge(
         let drain_streamdeck = || {
             while let Ok(command) = streamdeck_rx.try_recv() {
                 match command {
+                    crate::streamdeck::Command::RefreshData => {
+                        for (_, commands) in state.worker_commands() {
+                            let _ = commands.send(WorkerCommand::Refresh);
+                        }
+                    }
                     crate::streamdeck::Command::OpenPopup { provider } => {
                         let ui_dispatcher = ui_dispatcher.clone();
                         ui_dispatcher.dispatch(move || {

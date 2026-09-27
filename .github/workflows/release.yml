@@ -52,6 +52,40 @@ jobs:
         shell: pwsh
         run: .\build.ps1
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: streamdeck/package-lock.json
+
+      - name: Install Stream Deck build dependencies
+        working-directory: streamdeck
+        run: npm ci
+
+      - name: Validate and pack Stream Deck plugin
+        working-directory: streamdeck
+        run: |
+          npx streamdeck validate .\com.vertopolkalf.codex-minibar.sdPlugin
+          npm run pack
+
+      - name: Add Stream Deck package to release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.version.outputs.version }}"
+          $pluginManifest = Get-Content -Raw "streamdeck/com.vertopolkalf.codex-minibar.sdPlugin/manifest.json" | ConvertFrom-Json
+          $pluginPackage = "data/com.vertopolkalf.codex-minibar.streamDeckPlugin"
+          $assetDirectory = Join-Path "dist" $version
+          if (-not (Test-Path -LiteralPath $pluginPackage -PathType Leaf)) {
+            throw "Stream Deck package was not created at $pluginPackage"
+          }
+          if (-not (Test-Path -LiteralPath $assetDirectory -PathType Container)) {
+            throw "Release asset directory was not created at $assetDirectory"
+          }
+          $assetName = "codex-minibar-streamdeck-$($pluginManifest.Version).streamDeckPlugin"
+          Copy-Item -LiteralPath $pluginPackage -Destination (Join-Path $assetDirectory $assetName)
+          Write-Host "Added $assetName to release assets"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:

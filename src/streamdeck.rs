@@ -81,6 +81,7 @@ const LOOPBACK_HOST: &str = "127.0.0.1";
 #[derive(Clone, Debug)]
 pub enum Command {
     OpenPopup { provider: Option<ProviderKind> },
+    RefreshData,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +91,9 @@ enum Request {
         token: String,
     },
     Snapshot {
+        token: String,
+    },
+    Refresh {
         token: String,
     },
     OpenPopup {
@@ -248,6 +252,7 @@ fn handle_request(
     let token = match &request {
         Request::Catalog { token }
         | Request::Snapshot { token }
+        | Request::Refresh { token }
         | Request::OpenPopup { token, .. } => token,
     };
     if token != expected_token {
@@ -264,6 +269,13 @@ fn handle_request(
             providers: build_catalog(state),
         },
         Request::Snapshot { .. } => build_snapshot(state),
+        Request::Refresh { .. } => match commands_tx.send(Command::RefreshData) {
+            Ok(()) => Response::Accepted { ok: true },
+            Err(error) => Response::Error {
+                ok: false,
+                error: format!("queue data refresh: {error}"),
+            },
+        },
         Request::OpenPopup { provider, .. } => {
             let provider = match provider {
                 Some(id) => match ProviderKind::from_id(&id) {

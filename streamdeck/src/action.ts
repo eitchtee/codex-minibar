@@ -3,6 +3,7 @@ import streamDeck, {
   DidReceiveSettingsEvent,
   KeyDownEvent,
   KeyAction,
+  KeyUpEvent,
   SingletonAction,
   Target,
   WillAppearEvent,
@@ -27,9 +28,18 @@ import {
 } from "./reset-burst";
 
 type Binding = { action: KeyAction<ActionSettings>; settings: ActionSettings };
+type PendingPress = {
+  startedAt: number;
+  timer: NodeJS.Timeout;
+  settings: ActionSettings;
+  longPressTriggered: boolean;
+};
+
+const REFRESH_HOLD_MS = 700;
 
 const bridge = new MinibarBridge();
 const bindings = new Map<string, Binding>();
+const pendingPresses = new Map<string, PendingPress>();
 const previousWindows = new Map<string, LimitWindow[]>();
 const bursts = new Map<string, { startedAt: number; timer: NodeJS.Timeout }>();
 let latestSnapshot: SnapshotResponse | null = null;
@@ -121,6 +131,51 @@ function startSettings(settings: ActionSettings | undefined): ActionSettings {
   return normalizeSettings(settings ?? DEFAULT_SETTINGS);
 }
 
+function cancelPendingPress(id: string): PendingPress | undefined {
+  const pending = pendingPresses.get(id);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingPresses.delete(id);
+  return pending;
+}
+
+async function requestManualRefresh(): Promise<void> {
+  try {
+    await bridge.refreshData();
+    streamDeck.logger.info("Stream Deck requested a background data refresh");
+  } catch (error) {
+    streamDeck.logger.error(`Stream Deck background refresh failed: ${String(error)}`);
+  }
+}
+
+async function runClickAction(action: KeyAction<ActionSettings>, settings: ActionSettings): Promise<void> {
+  try {
+    if (settings.clickAction === "cycle_provider") {
+      const nextIndex = settings.cycleProviders.length === 0
+        ? 0
+        : (settings.cycleIndex + 1) % settings.cycleProviders.length;
+      const nextSettings = { ...settings, cycleIndex: nextIndex };
+      stopBurst(action.id);
+      previousWindows.delete(action.id);
+      const binding = bindings.get(action.id);
+      if (binding) binding.settings = nextSettings;
+      await action.setSettings(nextSettings);
+      await paint({ action, settings: nextSettings }, latestSnapshot !== null);
+      return;
+    }
+    await bridge.openPopup(settings.clickAction === "open_provider" ? activeProvider(settings) : undefined);
+  } catch (error) {
+    if (!(error instanceof BridgeUnavailableError)) streamDeck.logger.error(String(error));
+    const launched = await bridge.launchMinibar();
+    if (launched) {
+      stopBurst(action.id);
+      await action.setImage(renderIndicator(null, settings, false));
+      await action.setTitle("");
+      setTimeout(() => void refresh(), 750);
+    }
+  }
+}
+
 @action({ UUID: "com.vertopolkalf.codex-minibar.quota-indicator" })
 export class QuotaIndicator extends SingletonAction<ActionSettings> {
   override onWillAppear(ev: WillAppearEvent<ActionSettings>): void {
@@ -134,6 +189,7 @@ export class QuotaIndicator extends SingletonAction<ActionSettings> {
   }
 
   override onWillDisappear(ev: WillDisappearEvent<ActionSettings>): void {
+    cancelPendingPress(ev.action.id);
     stopBurst(ev.action.id);
     previousWindows.delete(ev.action.id);
     bindings.delete(ev.action.id);
@@ -141,6 +197,7 @@ export class QuotaIndicator extends SingletonAction<ActionSettings> {
 
   override onDidReceiveSettings(ev: DidReceiveSettingsEvent<ActionSettings>): void {
     if (!ev.action.isKey()) return;
+    cancelPendingPress(ev.action.id);
     const binding = bindings.get(ev.action.id);
     if (!binding) return;
     stopBurst(ev.action.id);
@@ -150,33 +207,30 @@ export class QuotaIndicator extends SingletonAction<ActionSettings> {
     void paint(binding, latestSnapshot !== null);
   }
 
-  override async onKeyDown(ev: KeyDownEvent<ActionSettings>): Promise<void> {
-    streamDeck.logger.info(`Quota Indicator pressed: ${ev.action.id}`);
-    const binding = bindings.get(ev.action.id);
-    const settings = startSettings(ev.payload.settings ?? binding?.settings);
-    try {
-      if (settings.clickAction === "cycle_provider") {
-        const nextIndex = settings.cycleProviders.length === 0
-          ? 0
-          : (settings.cycleIndex + 1) % settings.cycleProviders.length;
-        const nextSettings = { ...settings, cycleIndex: nextIndex };
-        stopBurst(ev.action.id);
-        previousWindows.delete(ev.action.id);
-        binding?.settings && (binding.settings = nextSettings);
-        await ev.action.setSettings(nextSettings);
-        await paint({ action: ev.action, settings: nextSettings }, latestSnapshot !== null);
-        return;
-      }
-      await bridge.openPopup(settings.clickAction === "open_provider" ? activeProvider(settings) : undefined);
-    } catch (error) {
-      if (!(error instanceof BridgeUnavailableError)) streamDeck.logger.error(String(error));
-      const launched = await bridge.launchMinibar();
-      if (launched) {
-        stopBurst(ev.action.id);
-        await ev.action.setImage(renderIndicator(null, settings, false));
-        await ev.action.setTitle("");
-        setTimeout(() => void refresh(), 750);
-      }
+  override onKeyDown(ev: KeyDownEvent<ActionSettings>): void {
+    if (!ev.action.isKey()) return;
+    const settings = startSettings(ev.payload.settings ?? bindings.get(ev.action.id)?.settings);
+    cancelPendingPress(ev.action.id);
+    const pending: PendingPress = {
+      startedAt: Date.now(),
+      settings,
+      longPressTriggered: false,
+      timer: setTimeout(() => {
+        if (pendingPresses.get(ev.action.id) !== pending) return;
+        pending.longPressTriggered = true;
+        void requestManualRefresh();
+      }, REFRESH_HOLD_MS),
+    };
+    pendingPresses.set(ev.action.id, pending);
+  }
+
+  override async onKeyUp(ev: KeyUpEvent<ActionSettings>): Promise<void> {
+    const pending = cancelPendingPress(ev.action.id);
+    if (!pending) return;
+    if (pending.longPressTriggered || Date.now() - pending.startedAt >= REFRESH_HOLD_MS) {
+      if (!pending.longPressTriggered) void requestManualRefresh();
+      return;
     }
+    await runClickAction(ev.action, pending.settings);
   }
 }

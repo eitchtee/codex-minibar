@@ -27,7 +27,11 @@ The style selector includes progress rings, a solid status-color background,
 horizontal and vertical status-colored progress bars, a left rail with
 left-aligned info, stacked numbers/bars, and reset-only views. The solid and
 bar styles keep the selected reset time or countdown at the bottom when it is
-enabled.
+enabled. Tap a key to run its configured popup action; while Minibar is running,
+hold it for 0.7 seconds to request a background refresh of all provider data
+without opening the popup.
 The Minibar process writes `streamdeck-bridge.json` beside its settings file
-while running. Pressing a key while Minibar is stopped launches the normal
+while running. Tapping a key while Minibar is stopped launches the normal
 per-user installation and the plugin reconnects on its next refresh.
+GitHub Actions includes the packaged `.streamDeckPlugin` companion alongside
+the Windows builds in each draft release.

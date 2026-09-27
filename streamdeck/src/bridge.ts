@@ -165,6 +165,14 @@ export class MinibarBridge {
     }
   }
 
+  async refreshData(): Promise<void> {
+    const response = await request(await loadEndpoint(), { op: "refresh" });
+    if (response.type !== "accepted" || !response.ok) {
+      const error = response.type === "error" ? response.error : "data refresh request failed";
+      throw new Error(error);
+    }
+  }
+
   async launchMinibar(): Promise<boolean> {
     let executable = fallbackExecutablePath();
     try {
