@@ -15,7 +15,7 @@ pub(super) fn detected_providers(settings: &Settings) -> [bool; 9] {
         )),
         crate::antigravity::is_installed(settings.antigravity_path.as_deref()),
         crate::grok::is_installed(settings.grok_path.as_deref()),
-        crate::kiro::has_cached_usage(),
+        crate::kiro::source_is_ready(),
     ]
 }
 
@@ -181,9 +181,9 @@ pub(super) fn onboarding_render(
                 settings_toggle_card_with_description(
                     "Kiro",
                     Some(if detected[8] {
-                        "Found Kiro's local monthly usage data."
+                        "Found a signed-in Kiro CLI."
                     } else {
-                        "Not found. Sign in and open Kiro IDE to load usage data."
+                        "Not found. Install and sign in to Kiro CLI to read usage."
                     }),
                     kiro_enabled,
                     move |value| set_kiro_enabled.call(value),

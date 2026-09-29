@@ -137,27 +137,36 @@ pub(super) fn provider_install_status(
             )
         }
         ProviderKind::Kiro => {
-            let detected = crate::kiro::has_cached_usage();
+            let detected = crate::kiro::source_is_ready();
             let source_path = crate::kiro::detected_source_path();
-            (
-                source_path.as_deref().map(display_fs_path),
-                None,
-                detected.then_some(ProviderInstallSource::App),
-            )
+            if crate::kiro::FORCE_CLI_SOURCE {
+                (
+                    None,
+                    source_path.as_deref().map(display_fs_path),
+                    detected.then_some(ProviderInstallSource::Cli),
+                )
+            } else {
+                (
+                    source_path.as_deref().map(display_fs_path),
+                    None,
+                    detected.then_some(ProviderInstallSource::App),
+                )
+            }
         }
     };
     ProviderInstallStatus {
         app,
         cli,
         used,
-        app_applicable: provider != ProviderKind::Grok,
+        app_applicable: provider != ProviderKind::Grok
+            && !(provider == ProviderKind::Kiro && crate::kiro::FORCE_CLI_SOURCE),
         cli_applicable: matches!(
             provider,
             ProviderKind::Codex
                 | ProviderKind::Claude
                 | ProviderKind::Antigravity
                 | ProviderKind::Grok
-        ),
+        ) || (provider == ProviderKind::Kiro && crate::kiro::FORCE_CLI_SOURCE),
         checking: false,
     }
 }
@@ -836,6 +845,9 @@ fn provider_description(provider: ProviderKind) -> &'static str {
         ProviderKind::Grok => {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
+        ProviderKind::Kiro if crate::kiro::FORCE_CLI_SOURCE => {
+            "Fetches live Kiro credits through the Kiro CLI sign-in."
+        }
         ProviderKind::Kiro => {
             "Fetches Kiro's live monthly credits and falls back to its local usage cache."
         }
@@ -850,6 +862,7 @@ fn source_labels(provider: ProviderKind) -> (&'static str, &'static str) {
         ProviderKind::Cursor => ("Cursor app", ""),
         ProviderKind::Antigravity => ("Antigravity app", "agy CLI"),
         ProviderKind::Grok => ("", "Grok CLI"),
+        ProviderKind::Kiro if crate::kiro::FORCE_CLI_SOURCE => ("", "Kiro CLI"),
         ProviderKind::Kiro => ("Kiro IDE", ""),
         ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => ("", ""),
     }
@@ -1207,7 +1220,7 @@ fn install_sections(
                     cli_label,
                     status.cli.as_deref(),
                     status.used == Some(ProviderInstallSource::Cli),
-                    true,
+                    provider != ProviderKind::Kiro,
                     ctx,
                 )
                 .with_key("source-cli"),

@@ -68,17 +68,16 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
 The app does not copy provider credentials into its ordinary settings file. It talks to the local
 Codex app server, reads Claude Code's existing local OAuth session, reads OpenCode's local
 configuration/history, reuses the official Antigravity or Grok CLI sign-in, requests live Kiro
-monthly credits with Kiro's existing access token, or requests OpenRouter key usage. The Kiro token
-is read-only and never refreshed or written; if the live request is unavailable, Minibar falls back
-to Kiro's local state database. The Kiro endpoint also supplies plan and account labels, with its
-local usage log as a fallback. The endpoint is currently undocumented by Kiro, so the local fallback
-also covers service changes. Kiro subscription credits stay separate from API-equivalent Total Spend.
+monthly credits through the Kiro CLI sign-in, or requests OpenRouter key usage. Kiro CLI is the
+required source while IDE support is temporarily disabled. The shared Kiro access token is read-only
+and never refreshed or written. The live endpoint also supplies plan and account labels; if it is
+unavailable, Minibar keeps its own last stored Kiro snapshot. The endpoint is currently undocumented
+by Kiro and may change. Kiro subscription credits stay separate from API-equivalent Total Spend.
 Optional OpenCode and OpenRouter manual API keys are protected with Windows user-scoped DPAPI
 storage. The app stores its own settings and usage history in your Windows user profile.
 
 Kiro's plan appears on its provider card. The account label uses Kiro's display name when available,
-then its email address, and follows the **Show account name** preference. If Kiro redacts that value
-in its local log, Minibar hides the label instead of showing the redaction marker.
+then its email address, and follows the **Show account name** preference. Redacted values are hidden.
 
 For Antigravity, run `agy` and complete its normal sign-in once; Minibar reads that existing
 Windows Credential Manager session and never stores it in app settings. For Grok, run `grok login`;
