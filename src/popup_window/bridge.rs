@@ -117,6 +117,7 @@ pub(super) fn start_background_bridge(
             provider_errors: state.startup_provider_errors.iter().cloned().collect(),
             last_activation: format_last_activation(&RateLimits::default(), fallback_attempt),
             show_used_percentage: state.settings.show_used_percentage,
+            show_usage_values: state.settings.show_usage_values,
             show_usage_pace: state.settings.show_usage_pace,
             compact_usage_cards: state.settings.compact_usage_cards,
             popup_visibility: state.settings.popup_visibility.clone(),
@@ -148,6 +149,7 @@ pub(super) fn start_background_bridge(
                 .providers
                 .is_enabled(ProviderKind::Antigravity),
             grok_enabled: state.settings.providers.is_enabled(ProviderKind::Grok),
+            kiro_enabled: state.settings.providers.is_enabled(ProviderKind::Kiro),
             openrouter_credentials_revision: state.settings.openrouter_credentials_revision,
             popup_order: state.settings.popup_order.clone(),
             use_colored_provider_icons: state.settings.use_colored_provider_icons,
@@ -157,6 +159,9 @@ pub(super) fn start_background_bridge(
             cursor_path: state.settings.cursor_path.clone(),
             antigravity_path: state.settings.antigravity_path.clone(),
             grok_path: state.settings.grok_path.clone(),
+            kiro_path: state.settings.kiro_path.clone(),
+            kiro_crew_path: state.settings.kiro_crew_path.clone(),
+            kiro_cli_path: state.settings.kiro_cli_path.clone(),
             update_version: update_version_from_phase(&update_phase),
             ..UiState::default()
         };
@@ -202,7 +207,8 @@ pub(super) fn start_background_bridge(
                 || ui.openrouter_enabled != settings.providers.is_enabled(ProviderKind::OpenRouter)
                 || ui.antigravity_enabled
                     != settings.providers.is_enabled(ProviderKind::Antigravity)
-                || ui.grok_enabled != settings.providers.is_enabled(ProviderKind::Grok);
+                || ui.grok_enabled != settings.providers.is_enabled(ProviderKind::Grok)
+                || ui.kiro_enabled != settings.providers.is_enabled(ProviderKind::Kiro);
             let opencode_zen_credentials_changed =
                 ui.opencode_zen_credentials_revision != settings.opencode_zen_credentials_revision;
             let opencode_go_credentials_changed =
@@ -235,6 +241,7 @@ pub(super) fn start_background_bridge(
             ui.popup_background_material = settings.popup_background_material;
             ui.time_format = settings.time_format;
             ui.show_used_percentage = settings.show_used_percentage;
+            ui.show_usage_values = settings.show_usage_values;
             ui.show_usage_pace = settings.show_usage_pace;
             ui.compact_usage_cards = settings.compact_usage_cards;
             ui.popup_visibility = settings.popup_visibility.clone();
@@ -254,6 +261,7 @@ pub(super) fn start_background_bridge(
             ui.openrouter_enabled = settings.providers.is_enabled(ProviderKind::OpenRouter);
             ui.antigravity_enabled = settings.providers.is_enabled(ProviderKind::Antigravity);
             ui.grok_enabled = settings.providers.is_enabled(ProviderKind::Grok);
+            ui.kiro_enabled = settings.providers.is_enabled(ProviderKind::Kiro);
             ui.openrouter_credentials_revision = settings.openrouter_credentials_revision;
             ui.popup_order = settings.popup_order.clone();
             ui.use_colored_provider_icons = settings.use_colored_provider_icons;
@@ -284,6 +292,12 @@ pub(super) fn start_background_bridge(
                     settings.antigravity_path != ui.antigravity_path,
                 ),
                 (ProviderKind::Grok, settings.grok_path != ui.grok_path),
+                (
+                    ProviderKind::Kiro,
+                    settings.kiro_path != ui.kiro_path
+                        || settings.kiro_crew_path != ui.kiro_crew_path
+                        || settings.kiro_cli_path != ui.kiro_cli_path,
+                ),
                 (ProviderKind::OpenRouter, openrouter_credentials_changed),
             ]
             .into_iter()
@@ -294,6 +308,9 @@ pub(super) fn start_background_bridge(
             ui.cursor_path = settings.cursor_path.clone();
             ui.antigravity_path = settings.antigravity_path.clone();
             ui.grok_path = settings.grok_path.clone();
+            ui.kiro_path = settings.kiro_path.clone();
+            ui.kiro_crew_path = settings.kiro_crew_path.clone();
+            ui.kiro_cli_path = settings.kiro_cli_path.clone();
             for provider in ProviderKind::ALL {
                 if restart.contains(&provider) || !settings.providers.is_enabled(provider) {
                     ui.clear_provider_requests(provider);
@@ -652,6 +669,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }
@@ -752,6 +770,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }
@@ -783,6 +802,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }

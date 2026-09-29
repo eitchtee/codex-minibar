@@ -561,6 +561,7 @@ fn usage_share_color(provider: ProviderKind, color_scheme: ColorScheme) -> Color
             ColorScheme::Light => Color::rgb(51, 51, 51),
             ColorScheme::Dark => Color::rgb(255, 255, 255),
         },
+        ProviderKind::Kiro => Color::rgb(151, 125, 255),
     }
 }
 

@@ -3,7 +3,7 @@ use super::platform::{close_open_window, is_open};
 use super::shared::settings_section_heading;
 use super::*;
 
-pub(super) fn detected_providers(settings: &Settings) -> [bool; 8] {
+pub(super) fn detected_providers(settings: &Settings) -> [bool; 9] {
     [
         crate::codex::is_installed(settings.codex_path.as_deref()),
         crate::claude::is_installed(settings.claude_path.as_deref()),
@@ -15,6 +15,11 @@ pub(super) fn detected_providers(settings: &Settings) -> [bool; 8] {
         )),
         crate::antigravity::is_installed(settings.antigravity_path.as_deref()),
         crate::grok::is_installed(settings.grok_path.as_deref()),
+        crate::kiro::source_is_ready(
+            settings.kiro_path.as_deref(),
+            settings.kiro_crew_path.as_deref(),
+            settings.kiro_cli_path.as_deref(),
+        ),
     ]
 }
 
@@ -30,7 +35,7 @@ enum OnboardingStep {
 pub(super) fn onboarding_render(
     cx: &mut RenderCx,
     settings: Arc<Settings>,
-    detected: [bool; 8],
+    detected: [bool; 9],
     settings_tx: Sender<Settings>,
 ) -> Element {
     let color_scheme = cx.use_color_scheme();
@@ -46,6 +51,7 @@ pub(super) fn onboarding_render(
     let (openrouter_enabled, set_openrouter_enabled) = cx.use_state(detected[5]);
     let (antigravity_enabled, set_antigravity_enabled) = cx.use_state(detected[6]);
     let (grok_enabled, set_grok_enabled) = cx.use_state(detected[7]);
+    let (kiro_enabled, set_kiro_enabled) = cx.use_state(detected[8]);
     let (start_at_login, set_start_at_login) = cx.use_state(settings.start_at_login);
     let (automatic_activation, set_automatic_activation) =
         cx.use_state(settings.automatic_activation);
@@ -176,6 +182,20 @@ pub(super) fn onboarding_render(
                     set_hovered_card_id.clone(),
                 )
                 .with_key("onboarding-grok"),
+                settings_toggle_card_with_description(
+                    "Kiro",
+                    Some(if detected[8] {
+                        "Found Kiro IDE, Kiro Crew, or a signed-in Kiro CLI."
+                    } else {
+                        "Not found. Install Kiro IDE or Kiro Crew, or sign in to Kiro CLI."
+                    }),
+                    kiro_enabled,
+                    move |value| set_kiro_enabled.call(value),
+                    "onboarding-kiro",
+                    &hovered_card_id,
+                    set_hovered_card_id.clone(),
+                )
+                .with_key("onboarding-kiro"),
             ],
         ),
         OnboardingStep::General => (
@@ -315,6 +335,7 @@ pub(super) fn onboarding_render(
                                 ProviderKind::OpenRouter => openrouter_enabled,
                                 ProviderKind::Antigravity => antigravity_enabled,
                                 ProviderKind::Grok => grok_enabled,
+                                ProviderKind::Kiro => kiro_enabled,
                             })
                             .map(|provider| provider.kind),
                     );

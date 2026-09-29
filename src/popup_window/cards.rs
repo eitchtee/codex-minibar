@@ -88,6 +88,7 @@ pub(super) fn provider_cards(
     show_used_percentage: bool,
     show_usage_pace: bool,
     compact_usage_cards: bool,
+    show_usage_values: bool,
     popup_visibility: &PopupVisibility,
     surface: PopupSurface,
     show_provider_tabs: bool,
@@ -109,6 +110,7 @@ pub(super) fn provider_cards(
         ProviderKind::OpenRouter => ("Spending", "Spending", "Spending"),
         ProviderKind::Antigravity => ("Gemini", "Gemini", "Claude + GPT"),
         ProviderKind::Grok => ("Credits", "Credits", "Credits"),
+        ProviderKind::Kiro => ("Monthly Credits", "Credits", "Credits"),
         _ => ("Monthly", "5h Session", "Weekly"),
     };
     let mut trailing: Vec<Element> = Vec::new();
@@ -322,7 +324,7 @@ pub(super) fn provider_cards(
         && show_usage_stats
         && (limits.usage.has_data() || provider == ProviderKind::Cursor);
     cards.extend(
-        popup_sections(limits, false)
+        popup_sections(provider, limits, false)
             .into_iter()
             .filter(|section| {
                 matches!(
@@ -340,7 +342,9 @@ pub(super) fn provider_cards(
                     PopupSection::Monthly => limit_card(
                         monthly_label,
                         &limits.secondary,
+                        limits.secondary_usage_amount.as_ref(),
                         show_used_percentage,
+                        show_usage_values,
                         show_usage_pace,
                         compact_usage_cards,
                         false,
@@ -349,7 +353,9 @@ pub(super) fn provider_cards(
                     PopupSection::FiveHour => limit_card(
                         primary_label,
                         &limits.primary,
+                        limits.primary_usage_amount.as_ref(),
                         show_used_percentage,
+                        show_usage_values,
                         show_usage_pace,
                         compact_usage_cards,
                         limits.five_hour_disabled(),
@@ -358,7 +364,9 @@ pub(super) fn provider_cards(
                     PopupSection::Weekly => limit_card(
                         secondary_label,
                         &limits.secondary,
+                        limits.secondary_usage_amount.as_ref(),
                         show_used_percentage,
+                        show_usage_values,
                         show_usage_pace,
                         compact_usage_cards,
                         false,
@@ -390,7 +398,9 @@ pub(super) fn provider_cards(
             limit_card(
                 &limit.title,
                 &limit.window,
+                None,
                 show_used_percentage,
+                show_usage_values,
                 show_usage_pace,
                 compact_usage_cards,
                 false,
@@ -1118,7 +1128,9 @@ fn limit_card_progress_layer(value: f64, fill: ThemeRef, radius: f64) -> Element
 pub(super) fn limit_card(
     title: &str,
     window: &LimitWindow,
+    usage_amount: Option<&UsageAmount>,
     show_used_percentage: bool,
+    show_usage_values: bool,
     show_usage_pace: bool,
     compact_usage_cards: bool,
     disabled: bool,
@@ -1128,7 +1140,9 @@ pub(super) fn limit_card(
         limit_card_compact(
             title,
             window,
+            usage_amount,
             show_used_percentage,
+            show_usage_values,
             show_usage_pace,
             disabled,
             color_scheme,
@@ -1137,7 +1151,9 @@ pub(super) fn limit_card(
         limit_card_base(
             title,
             window,
+            usage_amount,
             show_used_percentage,
+            show_usage_values,
             show_usage_pace,
             disabled,
             color_scheme,
@@ -1178,10 +1194,63 @@ pub(super) fn limit_card_presentation(
     )
 }
 
+fn limit_usage_label(
+    label: &str,
+    usage_amount: Option<&UsageAmount>,
+    show_usage_values: bool,
+    accent: ThemeRef,
+) -> Element {
+    let percentage = text_block(label)
+        .font_weight(600)
+        .foreground(accent)
+        .vertical_alignment(VerticalAlignment::Center);
+    let Some(value) = usage_amount_label(usage_amount, show_usage_values) else {
+        return percentage.into();
+    };
+    hstack((
+        percentage,
+        caption(value)
+            .foreground(ThemeRef::TertiaryText)
+            .vertical_alignment(VerticalAlignment::Center),
+    ))
+    .spacing(5.0)
+    .vertical_alignment(VerticalAlignment::Center)
+    .into()
+}
+
+fn usage_amount_label(usage_amount: Option<&UsageAmount>, enabled: bool) -> Option<String> {
+    let usage_amount = usage_amount?;
+    if !enabled
+        || !usage_amount.used.is_finite()
+        || usage_amount.used < 0.0
+        || !usage_amount.limit.is_finite()
+        || usage_amount.limit <= 0.0
+    {
+        return None;
+    }
+    Some(format!(
+        "({}/{})",
+        format_usage_amount(usage_amount.used),
+        format_usage_amount(usage_amount.limit),
+    ))
+}
+
+fn format_usage_amount(value: f64) -> String {
+    if value == 0.0 {
+        return "0".into();
+    }
+    format!("{value:.2}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
 fn limit_card_base(
     title: &str,
     window: &LimitWindow,
+    usage_amount: Option<&UsageAmount>,
     show_used_percentage: bool,
+    show_usage_values: bool,
     show_usage_pace: bool,
     disabled: bool,
     color_scheme: ColorScheme,
@@ -1202,11 +1271,13 @@ fn limit_card_base(
                 caption(title.to_uppercase())
                     .foreground(ThemeRef::SecondaryText)
                     .vertical_alignment(VerticalAlignment::Center),
-                text_block(remaining_label)
-                    .font_weight(600)
-                    .foreground(accent.clone())
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .grid_column(1),
+                limit_usage_label(
+                    &remaining_label,
+                    usage_amount,
+                    show_usage_values,
+                    accent.clone(),
+                )
+                .grid_column(1),
                 reset_status
                     .margin(Thickness {
                         left: 10.0,
@@ -1256,11 +1327,12 @@ fn limit_card_base(
 
     let footer: Element = if show_reset {
         grid((
-            hstack((text_block(remaining_label)
-                .font_weight(600)
-                .foreground(accent.clone())
-                .vertical_alignment(VerticalAlignment::Center),))
-            .vertical_alignment(VerticalAlignment::Center),
+            limit_usage_label(
+                &remaining_label,
+                usage_amount,
+                show_usage_values,
+                accent.clone(),
+            ),
             reset_status.grid_column(1),
         ))
         .columns([GridLength::Star(1.0), GridLength::Auto])
@@ -1269,12 +1341,12 @@ fn limit_card_base(
         .vertical_alignment(VerticalAlignment::Center)
         .into()
     } else {
-        hstack((text_block(remaining_label)
-            .font_weight(600)
-            .foreground(accent.clone())
-            .vertical_alignment(VerticalAlignment::Center),))
-        .vertical_alignment(VerticalAlignment::Center)
-        .into()
+        limit_usage_label(
+            &remaining_label,
+            usage_amount,
+            show_usage_values,
+            accent.clone(),
+        )
     };
 
     border(
@@ -1357,7 +1429,9 @@ fn compact_pace_marker_layer(pace: PaceTip, color_scheme: ColorScheme) -> Elemen
 fn limit_card_compact(
     title: &str,
     window: &LimitWindow,
+    usage_amount: Option<&UsageAmount>,
     show_used_percentage: bool,
+    show_usage_values: bool,
     show_usage_pace: bool,
     disabled: bool,
     color_scheme: ColorScheme,
@@ -1396,11 +1470,12 @@ fn limit_card_compact(
     };
     let footer: Element = if show_reset {
         grid((
-            hstack((text_block(remaining_label.clone())
-                .font_weight(600)
-                .foreground(accent.clone())
-                .vertical_alignment(VerticalAlignment::Center),))
-            .vertical_alignment(VerticalAlignment::Center),
+            limit_usage_label(
+                &remaining_label,
+                usage_amount,
+                show_usage_values,
+                accent.clone(),
+            ),
             reset_status.clone().grid_column(1),
         ))
         .columns([GridLength::Star(1.0), GridLength::Auto])
@@ -1409,12 +1484,12 @@ fn limit_card_compact(
         .vertical_alignment(VerticalAlignment::Center)
         .into()
     } else {
-        hstack((text_block(remaining_label.clone())
-            .font_weight(600)
-            .foreground(accent.clone())
-            .vertical_alignment(VerticalAlignment::Center),))
-        .vertical_alignment(VerticalAlignment::Center)
-        .into()
+        limit_usage_label(
+            &remaining_label,
+            usage_amount,
+            show_usage_values,
+            accent.clone(),
+        )
     };
     let radius = f64::from(popup::CARD_CORNER_RADIUS_DIP);
     let mut layers: Vec<Element> =
@@ -1439,11 +1514,13 @@ fn limit_card_compact(
                 caption(title.to_uppercase())
                     .foreground(ThemeRef::SecondaryText)
                     .vertical_alignment(VerticalAlignment::Center),
-                text_block(remaining_label.clone())
-                    .font_weight(600)
-                    .foreground(accent.clone())
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .grid_column(1),
+                limit_usage_label(
+                    &remaining_label,
+                    usage_amount,
+                    show_usage_values,
+                    accent.clone(),
+                )
+                .grid_column(1),
                 reset_status
                     .clone()
                     .margin(Thickness {

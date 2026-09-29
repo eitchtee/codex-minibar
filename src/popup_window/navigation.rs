@@ -17,6 +17,7 @@ pub(super) enum PopupView {
     OpenRouter,
     Antigravity,
     Grok,
+    Kiro,
 }
 
 impl PopupView {
@@ -30,6 +31,7 @@ impl PopupView {
             ProviderKind::OpenRouter => Self::OpenRouter,
             ProviderKind::Antigravity => Self::Antigravity,
             ProviderKind::Grok => Self::Grok,
+            ProviderKind::Kiro => Self::Kiro,
         }
     }
 
@@ -44,6 +46,7 @@ impl PopupView {
             Self::OpenRouter => Some(ProviderKind::OpenRouter),
             Self::Antigravity => Some(ProviderKind::Antigravity),
             Self::Grok => Some(ProviderKind::Grok),
+            Self::Kiro => Some(ProviderKind::Kiro),
         }
     }
 
@@ -74,6 +77,7 @@ pub(super) fn enabled_popup_views(
     openrouter: bool,
     antigravity: bool,
     grok: bool,
+    kiro: bool,
 ) -> Vec<PopupView> {
     let mut views = vec![PopupView::Home];
     if usage_enabled {
@@ -92,6 +96,7 @@ pub(super) fn enabled_popup_views(
             ProviderKind::OpenRouter => openrouter,
             ProviderKind::Antigravity => antigravity,
             ProviderKind::Grok => grok,
+            ProviderKind::Kiro => kiro,
         };
         if enabled {
             views.push(PopupView::from_provider(provider));
@@ -133,6 +138,7 @@ pub(super) fn provider_is_enabled(
     openrouter: bool,
     antigravity: bool,
     grok: bool,
+    kiro: bool,
 ) -> bool {
     match provider {
         ProviderKind::Codex => codex,
@@ -143,6 +149,7 @@ pub(super) fn provider_is_enabled(
         ProviderKind::OpenRouter => openrouter,
         ProviderKind::Antigravity => antigravity,
         ProviderKind::Grok => grok,
+        ProviderKind::Kiro => kiro,
     }
 }
 
@@ -184,6 +191,7 @@ pub(super) fn visible_popup_widgets(
     openrouter: bool,
     antigravity: bool,
     grok: bool,
+    kiro: bool,
 ) -> Vec<PopupWidgetKind> {
     popup_order
         .iter()
@@ -201,6 +209,7 @@ pub(super) fn visible_popup_widgets(
                     openrouter,
                     antigravity,
                     grok,
+                    kiro,
                 ) && popup_visibility.provider_visible_on_all(provider)
             }),
         })
@@ -371,12 +380,16 @@ impl PopupSection {
     }
 }
 
-pub(super) fn popup_sections(limits: &RateLimits, has_error: bool) -> Vec<PopupSection> {
+pub(super) fn popup_sections(
+    provider: ProviderKind,
+    limits: &RateLimits,
+    has_error: bool,
+) -> Vec<PopupSection> {
     let mut sections = Vec::with_capacity(6);
     if has_error {
         sections.push(PopupSection::Error);
     }
-    if limits.is_free_plan() {
+    if provider == ProviderKind::Kiro || limits.is_free_plan() {
         if !limits.secondary.is_empty() {
             sections.push(PopupSection::Monthly);
         }

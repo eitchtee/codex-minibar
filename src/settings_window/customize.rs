@@ -40,11 +40,13 @@ fn persist_popup_provider_all(
 pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Element>) {
     let use_colored_provider_icons = ctx.use_colored_provider_icons;
     let show_used_percentage = ctx.show_used_percentage;
+    let show_usage_values = ctx.show_usage_values;
     let show_usage_pace = ctx.show_usage_pace;
     let compact_usage_cards = ctx.compact_usage_cards;
     let show_account_name = ctx.show_account_name;
     let set_use_colored_provider_icons = ctx.set_use_colored_provider_icons.clone();
     let set_show_used_percentage = ctx.set_show_used_percentage.clone();
+    let set_show_usage_values = ctx.set_show_usage_values.clone();
     let set_show_usage_pace = ctx.set_show_usage_pace.clone();
     let set_compact_usage_cards = ctx.set_compact_usage_cards.clone();
     let set_show_account_name = ctx.set_show_account_name.clone();
@@ -53,6 +55,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let settings_tx = ctx.settings_tx.clone();
     let apply_use_colored_provider_icons = settings_tx.clone();
     let apply_show_used_percentage = settings_tx.clone();
+    let apply_show_usage_values = settings_tx.clone();
     let apply_show_usage_pace = settings_tx.clone();
     let apply_compact_usage_cards = settings_tx.clone();
     let apply_show_account_name = settings_tx.clone();
@@ -105,6 +108,29 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
             set_hovered_card_id.clone(),
         )
         .with_key("customize-show-used"),
+        settings_toggle_card_with_description(
+            "Show usage in values (when possible)",
+            Some("Adds exact used/limit amounts next to percentages when a provider reports them."),
+            show_usage_values,
+            {
+                let set_show_usage_values = set_show_usage_values.clone();
+                let apply_show_usage_values = apply_show_usage_values.clone();
+                move |value| {
+                    persist_bool(
+                        set_show_usage_values.clone(),
+                        apply_show_usage_values.clone(),
+                        value,
+                        |settings, value| {
+                            settings.show_usage_values = value;
+                        },
+                    );
+                }
+            },
+            "customize-show-usage-values",
+            hovered_card_id,
+            set_hovered_card_id.clone(),
+        )
+        .with_key("customize-show-usage-values"),
         settings_toggle_card_with_description(
             "Show usage pace",
             Some("Marks whether you're burning quota faster or slower than an even pace."),

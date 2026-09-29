@@ -144,6 +144,14 @@ const GROK_METRICS: &[MetricDescriptor] = &[MetricDescriptor {
     source: MetricSource::Primary,
 }];
 
+const KIRO_METRICS: &[MetricDescriptor] = &[MetricDescriptor {
+    // Keep the original Kiro metric id so existing tray and popup visibility
+    // settings survive the switch from an extra lane to the primary monthly quota.
+    id: "kiro.additional.credits",
+    label: "Monthly credits",
+    source: MetricSource::Secondary,
+}];
+
 pub const PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor {
         kind: ProviderKind::Codex,
@@ -237,6 +245,17 @@ pub const PROVIDERS: &[ProviderDescriptor] = &[
         metrics: GROK_METRICS,
         default_tray_metrics: &["grok.credits"],
     },
+    ProviderDescriptor {
+        kind: ProviderKind::Kiro,
+        id: "kiro",
+        display_name: "Kiro",
+        icon: "kiro",
+        brand_rgb: (151, 125, 255),
+        supports_activation: false,
+        include_in_total_spend: false,
+        metrics: KIRO_METRICS,
+        default_tray_metrics: &["kiro.additional.credits"],
+    },
 ];
 
 pub fn descriptor(provider: ProviderKind) -> &'static ProviderDescriptor {
@@ -278,6 +297,7 @@ pub fn light_surface_brand_rgb(provider: ProviderKind) -> (u8, u8, u8) {
         ProviderKind::OpenRouter => (118, 36, 244),
         ProviderKind::Antigravity => (32, 96, 205),
         ProviderKind::Grok => (51, 51, 51),
+        ProviderKind::Kiro => (105, 78, 198),
     }
 }
 
@@ -341,6 +361,7 @@ pub fn supports_banked_resets(provider: ProviderKind) -> bool {
             | ProviderKind::OpenRouter
             | ProviderKind::Antigravity
             | ProviderKind::Grok
+            | ProviderKind::Kiro
     )
 }
 
@@ -348,13 +369,19 @@ pub fn supports_banked_resets(provider: ProviderKind) -> bool {
 pub fn supports_credits(provider: ProviderKind) -> bool {
     !matches!(
         provider,
-        ProviderKind::OpenRouter | ProviderKind::Antigravity | ProviderKind::Grok
+        ProviderKind::OpenRouter
+            | ProviderKind::Antigravity
+            | ProviderKind::Grok
+            | ProviderKind::Kiro
     )
 }
 
 /// Whether this provider can expose local usage statistics in the popup.
 pub fn supports_usage_stats(provider: ProviderKind) -> bool {
-    !matches!(provider, ProviderKind::Antigravity | ProviderKind::Grok)
+    !matches!(
+        provider,
+        ProviderKind::Antigravity | ProviderKind::Grok | ProviderKind::Kiro
+    )
 }
 
 /// Whether this provider exposes OpenRouter-style spending strips.

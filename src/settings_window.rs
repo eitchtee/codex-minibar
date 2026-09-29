@@ -369,6 +369,8 @@ pub fn render(
         cx.use_state(settings.providers.is_enabled(ProviderKind::Antigravity));
     let (grok_enabled, set_grok_enabled) =
         cx.use_state(settings.providers.is_enabled(ProviderKind::Grok));
+    let (kiro_enabled, set_kiro_enabled) =
+        cx.use_state(settings.providers.is_enabled(ProviderKind::Kiro));
     let (openrouter_accounts, set_openrouter_accounts) =
         cx.use_state(crate::openrouter::accounts_for_settings(&settings));
     let (openrouter_snapshot, set_openrouter_snapshot) = cx.use_state(cached_openrouter_snapshot());
@@ -409,6 +411,24 @@ pub fn render(
             .as_ref()
             .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
     );
+    let (kiro_path, set_kiro_path) = cx.use_state(
+        settings
+            .kiro_path
+            .as_ref()
+            .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+    );
+    let (kiro_crew_path, set_kiro_crew_path) = cx.use_state(
+        settings
+            .kiro_crew_path
+            .as_ref()
+            .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+    );
+    let (kiro_cli_path, set_kiro_cli_path) = cx.use_state(
+        settings
+            .kiro_cli_path
+            .as_ref()
+            .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+    );
     let (popup_order, set_popup_order) = cx.use_state(settings.popup_order.clone());
     let (use_colored_sidebar_icons, set_use_colored_sidebar_icons) =
         cx.use_state(settings.use_colored_sidebar_icons);
@@ -429,12 +449,17 @@ pub fn render(
         cx.use_async_state(ProviderInstallStatus::checking());
     let (grok_install_status, set_grok_install_status) =
         cx.use_async_state(ProviderInstallStatus::checking_cli());
-    let last_status_paths = cx.use_ref(None::<[String; 5]>);
+    let (kiro_install_status, set_kiro_install_status) =
+        cx.use_async_state(ProviderInstallStatus::checking_kiro());
+    let last_status_paths = cx.use_ref(None::<[String; 8]>);
     let status_codex_path = codex_path.clone();
     let status_claude_path = claude_path.clone();
     let status_cursor_path = cursor_path.clone();
     let status_antigravity_path = antigravity_path.clone();
     let status_grok_path = grok_path.clone();
+    let status_kiro_path = kiro_path.clone();
+    let status_kiro_crew_path = kiro_crew_path.clone();
+    let status_kiro_cli_path = kiro_cli_path.clone();
     cx.use_effect(
         (
             codex_path.clone(),
@@ -442,6 +467,9 @@ pub fn render(
             cursor_path.clone(),
             antigravity_path.clone(),
             grok_path.clone(),
+            kiro_path.clone(),
+            kiro_crew_path.clone(),
+            kiro_cli_path.clone(),
             provider_status_revision,
             nav_mode,
         ),
@@ -455,6 +483,9 @@ pub fn render(
                 status_cursor_path.clone(),
                 status_antigravity_path.clone(),
                 status_grok_path.clone(),
+                status_kiro_path.clone(),
+                status_kiro_crew_path.clone(),
+                status_kiro_cli_path.clone(),
             ];
             let paths_changed = last_status_paths.get_cloned().as_ref() != Some(&paths);
             last_status_paths.set(Some(paths));
@@ -467,6 +498,7 @@ pub fn render(
                 set_openrouter_install_status.call(ProviderInstallStatus::checking_app());
                 set_antigravity_install_status.call(ProviderInstallStatus::checking());
                 set_grok_install_status.call(ProviderInstallStatus::checking_cli());
+                set_kiro_install_status.call(ProviderInstallStatus::checking_kiro());
             }
             let codex_status = set_codex_install_status.clone();
             let claude_status = set_claude_install_status.clone();
@@ -476,6 +508,7 @@ pub fn render(
             let openrouter_status = set_openrouter_install_status.clone();
             let antigravity_status = set_antigravity_install_status.clone();
             let grok_status = set_grok_install_status.clone();
+            let kiro_status = set_kiro_install_status.clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_millis(250));
                 if PROVIDER_STATUS_GEN.load(Ordering::Relaxed) != generation {
@@ -490,6 +523,11 @@ pub fn render(
                 let antigravity =
                     provider_install_status(ProviderKind::Antigravity, &status_antigravity_path);
                 let grok = provider_install_status(ProviderKind::Grok, &status_grok_path);
+                let kiro = providers::provider_install_status_kiro(
+                    &status_kiro_path,
+                    &status_kiro_crew_path,
+                    &status_kiro_cli_path,
+                );
                 if PROVIDER_STATUS_GEN.load(Ordering::Relaxed) == generation {
                     codex_status.call(codex);
                     claude_status.call(claude);
@@ -499,6 +537,7 @@ pub fn render(
                     openrouter_status.call(openrouter);
                     antigravity_status.call(antigravity);
                     grok_status.call(grok);
+                    kiro_status.call(kiro);
                 }
             });
         },
@@ -526,6 +565,7 @@ pub fn render(
                 ProviderKind::OpenRouter => openrouter_enabled,
                 ProviderKind::Antigravity => antigravity_enabled,
                 ProviderKind::Grok => grok_enabled,
+                ProviderKind::Kiro => kiro_enabled,
             },
             |provider| {
                 provider_readiness(match provider {
@@ -537,6 +577,7 @@ pub fn render(
                     ProviderKind::OpenRouter => &openrouter_install_status,
                     ProviderKind::Antigravity => &antigravity_install_status,
                     ProviderKind::Grok => &grok_install_status,
+                    ProviderKind::Kiro => &kiro_install_status,
                 })
             },
             openrouter_accounts.len(),
@@ -635,6 +676,7 @@ pub fn render(
                                     ProviderKind::OpenRouter => openrouter_enabled,
                                     ProviderKind::Antigravity => antigravity_enabled,
                                     ProviderKind::Grok => grok_enabled,
+                                    ProviderKind::Kiro => kiro_enabled,
                                 });
                             let restore = if root_selected != Tab::Providers {
                                 root_selected
@@ -751,6 +793,7 @@ pub fn render(
         cx.use_state(settings.reset_announcement_refresh_interval);
     let (show_used_percentage, set_show_used_percentage) =
         cx.use_state(settings.show_used_percentage);
+    let (show_usage_values, set_show_usage_values) = cx.use_state(settings.show_usage_values);
     let (show_usage_pace, set_show_usage_pace) = cx.use_state(settings.show_usage_pace);
     let (compact_usage_cards, set_compact_usage_cards) = cx.use_state(settings.compact_usage_cards);
     let (popup_visibility, set_popup_visibility) = cx.use_state(settings.popup_visibility.clone());
@@ -815,12 +858,16 @@ pub fn render(
             openrouter_enabled: set_openrouter_enabled.clone(),
             antigravity_enabled: set_antigravity_enabled.clone(),
             grok_enabled: set_grok_enabled.clone(),
+            kiro_enabled: set_kiro_enabled.clone(),
             openrouter_accounts: set_openrouter_accounts.clone(),
             codex_path: set_codex_path.clone(),
             claude_path: set_claude_path.clone(),
             cursor_path: set_cursor_path.clone(),
             antigravity_path: set_antigravity_path.clone(),
             grok_path: set_grok_path.clone(),
+            kiro_path: set_kiro_path.clone(),
+            kiro_crew_path: set_kiro_crew_path.clone(),
+            kiro_cli_path: set_kiro_cli_path.clone(),
             popup_order: set_popup_order.clone(),
             use_colored_provider_icons: set_use_colored_provider_icons.clone(),
             use_colored_sidebar_icons: set_use_colored_sidebar_icons.clone(),
@@ -835,6 +882,7 @@ pub fn render(
             reset_announcement_refresh_interval: set_reset_announcement_refresh_interval.clone(),
             start_at_login: set_start_at_login.clone(),
             show_used_percentage: set_show_used_percentage.clone(),
+            show_usage_values: set_show_usage_values.clone(),
             show_usage_pace: set_show_usage_pace.clone(),
             compact_usage_cards: set_compact_usage_cards.clone(),
             popup_visibility: set_popup_visibility.clone(),
@@ -873,11 +921,15 @@ pub fn render(
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
         codex_path: &codex_path,
         claude_path: &claude_path,
         cursor_path: &cursor_path,
         antigravity_path: &antigravity_path,
         grok_path: &grok_path,
+        kiro_path: &kiro_path,
+        kiro_crew_path: &kiro_crew_path,
+        kiro_cli_path: &kiro_cli_path,
         codex_install_status: &codex_install_status,
         claude_install_status: &claude_install_status,
         cursor_install_status: &cursor_install_status,
@@ -886,6 +938,7 @@ pub fn render(
         openrouter_install_status: &openrouter_install_status,
         antigravity_install_status: &antigravity_install_status,
         grok_install_status: &grok_install_status,
+        kiro_install_status: &kiro_install_status,
         openrouter_accounts: &openrouter_accounts,
         openrouter_snapshot: &openrouter_snapshot,
         expanded_provider_cards: &expanded_provider_cards,
@@ -907,6 +960,7 @@ pub fn render(
         reset_announcement_refresh_interval,
         start_at_login,
         show_used_percentage,
+        show_usage_values,
         show_usage_pace,
         compact_usage_cards,
         popup_visibility: &popup_visibility,
@@ -953,6 +1007,7 @@ pub fn render(
         set_openrouter_enabled: set_openrouter_enabled.clone(),
         set_antigravity_enabled: set_antigravity_enabled.clone(),
         set_grok_enabled: set_grok_enabled.clone(),
+        set_kiro_enabled: set_kiro_enabled.clone(),
         set_openrouter_accounts: set_openrouter_accounts.clone(),
         set_expanded_provider_cards: set_expanded_provider_cards.clone(),
         set_provider_dialog: set_provider_dialog.clone(),
@@ -962,6 +1017,9 @@ pub fn render(
         set_cursor_path: set_cursor_path.clone(),
         set_antigravity_path: set_antigravity_path.clone(),
         set_grok_path: set_grok_path.clone(),
+        set_kiro_path: set_kiro_path.clone(),
+        set_kiro_crew_path: set_kiro_crew_path.clone(),
+        set_kiro_cli_path: set_kiro_cli_path.clone(),
         set_popup_order: set_popup_order.clone(),
         set_use_colored_provider_icons: set_use_colored_provider_icons.clone(),
         set_use_colored_sidebar_icons: set_use_colored_sidebar_icons.clone(),
@@ -978,6 +1036,7 @@ pub fn render(
         set_reset_announcement_refresh_interval: set_reset_announcement_refresh_interval.clone(),
         set_start_at_login: set_start_at_login.clone(),
         set_show_used_percentage: set_show_used_percentage.clone(),
+        set_show_usage_values: set_show_usage_values.clone(),
         set_show_usage_pace: set_show_usage_pace.clone(),
         set_compact_usage_cards: set_compact_usage_cards.clone(),
         set_popup_visibility: set_popup_visibility.clone(),
@@ -1152,6 +1211,7 @@ pub fn render(
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     );
     let window_body: Element = if let Some(editing) = editing_tray_indicator.as_ref() {
         let overlay = tray_indicator_edit_overlay(

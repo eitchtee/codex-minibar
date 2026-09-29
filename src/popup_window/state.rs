@@ -317,6 +317,7 @@ pub(super) struct UiState {
     pub(super) active_requests: Vec<(ProviderKind, RequestKind)>,
     pub(super) refreshing: bool,
     pub(super) show_used_percentage: bool,
+    pub(super) show_usage_values: bool,
     pub(super) show_usage_pace: bool,
     pub(super) compact_usage_cards: bool,
     pub(super) popup_visibility: PopupVisibility,
@@ -334,6 +335,7 @@ pub(super) struct UiState {
     pub(super) openrouter_enabled: bool,
     pub(super) antigravity_enabled: bool,
     pub(super) grok_enabled: bool,
+    pub(super) kiro_enabled: bool,
     pub(super) opencode_zen_credentials_revision: u64,
     pub(super) opencode_go_credentials_revision: u64,
     pub(super) openrouter_credentials_revision: u64,
@@ -345,6 +347,9 @@ pub(super) struct UiState {
     pub(super) cursor_path: Option<std::path::PathBuf>,
     pub(super) antigravity_path: Option<std::path::PathBuf>,
     pub(super) grok_path: Option<std::path::PathBuf>,
+    pub(super) kiro_path: Option<std::path::PathBuf>,
+    pub(super) kiro_crew_path: Option<std::path::PathBuf>,
+    pub(super) kiro_cli_path: Option<std::path::PathBuf>,
     pub(super) update_version: Option<String>,
 }
 
@@ -367,6 +372,7 @@ impl Default for UiState {
             active_requests: Vec::new(),
             refreshing: false,
             show_used_percentage: false,
+            show_usage_values: true,
             show_usage_pace: true,
             compact_usage_cards: false,
             popup_visibility: PopupVisibility::build_defaults(),
@@ -386,6 +392,7 @@ impl Default for UiState {
             openrouter_enabled: false,
             antigravity_enabled: false,
             grok_enabled: false,
+            kiro_enabled: false,
             openrouter_credentials_revision: 0,
             popup_order: PopupWidgetKind::default_order(),
             use_colored_provider_icons: true,
@@ -395,6 +402,9 @@ impl Default for UiState {
             cursor_path: None,
             antigravity_path: None,
             grok_path: None,
+            kiro_path: None,
+            kiro_crew_path: None,
+            kiro_cli_path: None,
             update_version: None,
         }
     }

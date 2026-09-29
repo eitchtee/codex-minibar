@@ -19,12 +19,16 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let set_openrouter_enabled = ctx.set_openrouter_enabled.clone();
     let set_antigravity_enabled = ctx.set_antigravity_enabled.clone();
     let set_grok_enabled = ctx.set_grok_enabled.clone();
+    let set_kiro_enabled = ctx.set_kiro_enabled.clone();
     let set_openrouter_accounts = ctx.set_openrouter_accounts.clone();
     let set_codex_path = ctx.set_codex_path.clone();
     let set_claude_path = ctx.set_claude_path.clone();
     let set_cursor_path = ctx.set_cursor_path.clone();
     let set_antigravity_path = ctx.set_antigravity_path.clone();
     let set_grok_path = ctx.set_grok_path.clone();
+    let set_kiro_path = ctx.set_kiro_path.clone();
+    let set_kiro_crew_path = ctx.set_kiro_crew_path.clone();
+    let set_kiro_cli_path = ctx.set_kiro_cli_path.clone();
     let set_popup_order = ctx.set_popup_order.clone();
     let set_use_colored_provider_icons = ctx.set_use_colored_provider_icons.clone();
     let set_use_colored_sidebar_icons = ctx.set_use_colored_sidebar_icons.clone();
@@ -40,6 +44,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         ctx.set_reset_announcement_refresh_interval.clone();
     let set_start_at_login = ctx.set_start_at_login.clone();
     let set_show_used_percentage = ctx.set_show_used_percentage.clone();
+    let set_show_usage_values = ctx.set_show_usage_values.clone();
     let set_show_usage_pace = ctx.set_show_usage_pace.clone();
     let set_compact_usage_cards = ctx.set_compact_usage_cards.clone();
     let set_popup_visibility = ctx.set_popup_visibility.clone();
@@ -82,12 +87,16 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled: set_openrouter_enabled,
         antigravity_enabled: set_antigravity_enabled,
         grok_enabled: set_grok_enabled,
+        kiro_enabled: set_kiro_enabled,
         openrouter_accounts: set_openrouter_accounts,
         codex_path: set_codex_path,
         claude_path: set_claude_path,
         cursor_path: set_cursor_path,
         antigravity_path: set_antigravity_path,
         grok_path: set_grok_path,
+        kiro_path: set_kiro_path,
+        kiro_crew_path: set_kiro_crew_path,
+        kiro_cli_path: set_kiro_cli_path,
         popup_order: set_popup_order,
         use_colored_provider_icons: set_use_colored_provider_icons,
         use_colored_sidebar_icons: set_use_colored_sidebar_icons,
@@ -102,6 +111,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         reset_announcement_refresh_interval: set_reset_announcement_refresh_interval,
         start_at_login: set_start_at_login,
         show_used_percentage: set_show_used_percentage,
+        show_usage_values: set_show_usage_values,
         show_usage_pace: set_show_usage_pace,
         compact_usage_cards: set_compact_usage_cards,
         popup_visibility: set_popup_visibility,

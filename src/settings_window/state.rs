@@ -17,12 +17,16 @@ pub(super) struct SettingsWindowState {
     pub(super) openrouter_enabled: SetState<bool>,
     pub(super) antigravity_enabled: SetState<bool>,
     pub(super) grok_enabled: SetState<bool>,
+    pub(super) kiro_enabled: SetState<bool>,
     pub(super) openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
     pub(super) codex_path: SetState<String>,
     pub(super) claude_path: SetState<String>,
     pub(super) cursor_path: SetState<String>,
     pub(super) antigravity_path: SetState<String>,
     pub(super) grok_path: SetState<String>,
+    pub(super) kiro_path: SetState<String>,
+    pub(super) kiro_crew_path: SetState<String>,
+    pub(super) kiro_cli_path: SetState<String>,
     pub(super) popup_order: SetState<Vec<PopupWidgetKind>>,
     pub(super) use_colored_provider_icons: SetState<bool>,
     pub(super) use_colored_sidebar_icons: SetState<bool>,
@@ -37,6 +41,7 @@ pub(super) struct SettingsWindowState {
     pub(super) reset_announcement_refresh_interval: SetState<ResetAnnouncementRefreshInterval>,
     pub(super) start_at_login: SetState<bool>,
     pub(super) show_used_percentage: SetState<bool>,
+    pub(super) show_usage_values: SetState<bool>,
     pub(super) show_usage_pace: SetState<bool>,
     pub(super) compact_usage_cards: SetState<bool>,
     pub(super) popup_visibility: SetState<PopupVisibility>,
@@ -84,6 +89,8 @@ impl SettingsWindowState {
             .call(settings.providers.is_enabled(ProviderKind::Antigravity));
         self.grok_enabled
             .call(settings.providers.is_enabled(ProviderKind::Grok));
+        self.kiro_enabled
+            .call(settings.providers.is_enabled(ProviderKind::Kiro));
         self.openrouter_accounts
             .call(crate::openrouter::accounts_for_settings(settings));
         self.codex_path.call(
@@ -116,6 +123,24 @@ impl SettingsWindowState {
                 .as_ref()
                 .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
         );
+        self.kiro_path.call(
+            settings
+                .kiro_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+        );
+        self.kiro_crew_path.call(
+            settings
+                .kiro_crew_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+        );
+        self.kiro_cli_path.call(
+            settings
+                .kiro_cli_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+        );
         self.popup_order.call(settings.popup_order.clone());
         self.use_colored_provider_icons
             .call(settings.use_colored_provider_icons);
@@ -141,6 +166,7 @@ impl SettingsWindowState {
         self.start_at_login.call(settings.start_at_login);
         self.show_used_percentage
             .call(settings.show_used_percentage);
+        self.show_usage_values.call(settings.show_usage_values);
         self.show_usage_pace.call(settings.show_usage_pace);
         self.compact_usage_cards.call(settings.compact_usage_cards);
         self.popup_visibility
@@ -194,11 +220,15 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) openrouter_enabled: bool,
     pub(super) antigravity_enabled: bool,
     pub(super) grok_enabled: bool,
+    pub(super) kiro_enabled: bool,
     pub(super) codex_path: &'a str,
     pub(super) claude_path: &'a str,
     pub(super) cursor_path: &'a str,
     pub(super) antigravity_path: &'a str,
     pub(super) grok_path: &'a str,
+    pub(super) kiro_path: &'a str,
+    pub(super) kiro_crew_path: &'a str,
+    pub(super) kiro_cli_path: &'a str,
     pub(super) codex_install_status: &'a ProviderInstallStatus,
     pub(super) claude_install_status: &'a ProviderInstallStatus,
     pub(super) cursor_install_status: &'a ProviderInstallStatus,
@@ -207,6 +237,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) openrouter_install_status: &'a ProviderInstallStatus,
     pub(super) antigravity_install_status: &'a ProviderInstallStatus,
     pub(super) grok_install_status: &'a ProviderInstallStatus,
+    pub(super) kiro_install_status: &'a ProviderInstallStatus,
     pub(super) openrouter_accounts: &'a [OpenRouterAccount],
     pub(super) openrouter_snapshot: &'a OpenRouterSettingsSnapshot,
     pub(super) expanded_provider_cards: &'a [String],
@@ -228,6 +259,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval,
     pub(super) start_at_login: bool,
     pub(super) show_used_percentage: bool,
+    pub(super) show_usage_values: bool,
     pub(super) show_usage_pace: bool,
     pub(super) compact_usage_cards: bool,
     pub(super) popup_visibility: &'a PopupVisibility,
@@ -274,6 +306,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_openrouter_enabled: SetState<bool>,
     pub(super) set_antigravity_enabled: SetState<bool>,
     pub(super) set_grok_enabled: SetState<bool>,
+    pub(super) set_kiro_enabled: SetState<bool>,
     pub(super) set_openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
     pub(super) set_expanded_provider_cards: AsyncSetState<Vec<String>>,
     pub(super) set_provider_dialog: AsyncSetState<Option<ProviderDialog>>,
@@ -283,6 +316,9 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_cursor_path: SetState<String>,
     pub(super) set_antigravity_path: SetState<String>,
     pub(super) set_grok_path: SetState<String>,
+    pub(super) set_kiro_path: SetState<String>,
+    pub(super) set_kiro_crew_path: SetState<String>,
+    pub(super) set_kiro_cli_path: SetState<String>,
     pub(super) set_popup_order: SetState<Vec<PopupWidgetKind>>,
     pub(super) set_use_colored_provider_icons: SetState<bool>,
     pub(super) set_use_colored_sidebar_icons: SetState<bool>,
@@ -299,6 +335,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_reset_announcement_refresh_interval: SetState<ResetAnnouncementRefreshInterval>,
     pub(super) set_start_at_login: SetState<bool>,
     pub(super) set_show_used_percentage: SetState<bool>,
+    pub(super) set_show_usage_values: SetState<bool>,
     pub(super) set_show_usage_pace: SetState<bool>,
     pub(super) set_compact_usage_cards: SetState<bool>,
     pub(super) set_popup_visibility: SetState<PopupVisibility>,

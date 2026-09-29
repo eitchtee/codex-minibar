@@ -10,6 +10,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let openrouter_enabled = ctx.openrouter_enabled;
     let antigravity_enabled = ctx.antigravity_enabled;
     let grok_enabled = ctx.grok_enabled;
+    let kiro_enabled = ctx.kiro_enabled;
     let automatic_activation = ctx.automatic_activation;
     let scheduled_activations = ctx.scheduled_activations;
     let auto_activation_pauses = ctx.auto_activation_pauses;
@@ -34,6 +35,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     ];
     let default_provider = activation_providers(&provider_enabled).into_iter().next();
     let mut rows = vec![settings_toggle_card_with_description(
@@ -313,7 +315,7 @@ fn activation_section_header(
     .into()
 }
 
-fn activation_providers(provider_enabled: &[bool; 8]) -> Vec<ProviderKind> {
+fn activation_providers(provider_enabled: &[bool; 9]) -> Vec<ProviderKind> {
     ProviderKind::ALL
         .into_iter()
         .enumerate()
@@ -326,7 +328,7 @@ fn activation_providers(provider_enabled: &[bool; 8]) -> Vec<ProviderKind> {
 }
 
 fn activation_provider_choices(
-    provider_enabled: &[bool; 8],
+    provider_enabled: &[bool; 9],
     current: Option<ProviderKind>,
 ) -> Vec<ProviderKind> {
     ProviderKind::ALL
@@ -466,7 +468,7 @@ fn set_activation_weekday(weekdays: &mut Vec<u8>, day: u8, checked: bool) -> boo
 
 fn scheduled_activation_cards(
     schedules: &[ScheduledActivation],
-    provider_enabled: &[bool; 8],
+    provider_enabled: &[bool; 9],
     time_format: TimeFormat,
     expanded_schedule: &Option<String>,
     set_expanded_schedule: SetState<Option<String>>,
@@ -654,7 +656,7 @@ fn scheduled_activation_cards(
 
 fn auto_activation_pause_cards(
     pauses: &[AutoActivationPause],
-    provider_enabled: &[bool; 8],
+    provider_enabled: &[bool; 9],
     time_format: TimeFormat,
     expanded_pause: &Option<String>,
     set_expanded_pause: SetState<Option<String>>,
