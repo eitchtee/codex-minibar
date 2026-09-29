@@ -7,7 +7,9 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -32,6 +34,7 @@ pub struct KiroClient {
     crew_path: Option<PathBuf>,
     cli_path: Option<PathBuf>,
     state_path: Option<PathBuf>,
+    cli_identity_cache: Option<(Instant, Option<String>)>,
 }
 
 impl KiroClient {
@@ -53,10 +56,11 @@ impl KiroClient {
             crew_path,
             cli_path,
             state_path,
+            cli_identity_cache: None,
         }
     }
 
-    fn read_usage_limits(&self) -> Result<RateLimits> {
+    fn read_usage_limits(&mut self) -> Result<RateLimits> {
         if self.app_path.is_none()
             && self.crew_path.is_none()
             && self.cli_path.is_none()
@@ -66,22 +70,45 @@ impl KiroClient {
         }
 
         match read_live_usage_limits() {
-            Ok(limits) => Ok(limits),
+            Ok(limits) => Ok(self.with_cli_identity(limits)),
             Err(error) if crate::worker::is_rate_limited_error(&error) => Err(error),
             Err(live_error)
                 if self.app_path.is_some()
                     || self.state_path.as_ref().is_some_and(|path| path.is_file()) =>
             {
-                self
-                .read_cached_usage_limits()
-                .map_err(|cache_error| {
+                self.read_cached_usage_limits()
+                    .map(|limits| self.with_cli_identity(limits))
+                    .map_err(|cache_error| {
                     anyhow!(
                         "Kiro's live quota request failed ({live_error:#}) and its local cache could not be read ({cache_error:#})"
                     )
-                })
+                    })
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn with_cli_identity(&mut self, mut limits: RateLimits) -> RateLimits {
+        if limits.account_name.is_none() {
+            let now = Instant::now();
+            let cached = self
+                .cli_identity_cache
+                .as_ref()
+                .and_then(|(sampled_at, name)| {
+                    let ttl = if name.is_some() {
+                        Duration::from_secs(600)
+                    } else {
+                        Duration::from_secs(60)
+                    };
+                    (now.duration_since(*sampled_at) < ttl).then(|| name.clone())
+                });
+            limits.account_name = cached.unwrap_or_else(|| {
+                let name = self.cli_path.as_deref().and_then(cli_identity_account_name);
+                self.cli_identity_cache = Some((Instant::now(), name.clone()));
+                name
+            });
+        }
+        limits
     }
 
     fn read_cached_usage_limits(&self) -> Result<RateLimits> {
@@ -158,6 +185,106 @@ impl KiroClient {
             secondary_usage_amount: Some(UsageAmount { used, limit }),
             ..RateLimits::default()
         })
+    }
+}
+
+/// Kiro CLI can still identify its account after the IDE's older shared token
+/// expires. Only invoke `whoami` when the CLI's own cached token is unexpired;
+/// otherwise some CLI versions launch browser sign-in automatically.
+fn cli_identity_account_name(executable: &Path) -> Option<String> {
+    if !cli_auth_cache_is_fresh() {
+        return None;
+    }
+
+    let mut command = Command::new(executable);
+    command
+        .args(["whoami", "--format", "json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+
+    let mut child = command.spawn().ok()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                let output = child.wait_with_output().ok()?;
+                if !output.status.success() {
+                    return None;
+                }
+                let response: Value = serde_json::from_slice(&output.stdout).ok()?;
+                let user = response
+                    .get("userInfo")
+                    .or_else(|| response.get("user_info"))
+                    .unwrap_or(&response);
+                let user: KiroUserInfo = serde_json::from_value(user.clone()).ok()?;
+                return account_display_name(&user);
+            }
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
+fn cli_auth_cache_is_fresh() -> bool {
+    #[cfg(windows)]
+    {
+        let Some(path) = directories::BaseDirs::new()
+            .map(|base| base.data_local_dir().join("Kiro-Cli/data.sqlite3"))
+            .filter(|path| path.is_file())
+        else {
+            return false;
+        };
+        let Ok(connection) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        else {
+            return false;
+        };
+        if connection.busy_timeout(Duration::from_millis(250)).is_err() {
+            return false;
+        }
+        let Ok(mut statement) =
+            connection.prepare("SELECT value FROM auth_kv WHERE key LIKE 'kirocli:%:token'")
+        else {
+            return false;
+        };
+        let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(0)) else {
+            return false;
+        };
+        return rows.flatten().any(|raw| {
+            serde_json::from_str::<Value>(&raw)
+                .ok()
+                .is_some_and(|token| {
+                    let has_access_token = token
+                        .get("access_token")
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty());
+                    let not_expired = token
+                        .get("expires_at")
+                        .and_then(timestamp_value)
+                        .is_some_and(|expires_at| {
+                            expires_at > Utc::now() + chrono::Duration::seconds(30)
+                        });
+                    has_access_token && not_expired
+                })
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 
