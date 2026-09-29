@@ -215,7 +215,7 @@ pub(super) fn home_settings_cards(ctx: &SettingsPageContext<'_>) -> Vec<Element>
     let apply_show_total_spend = settings_tx.clone();
     let apply_total_spend_presentation = settings_tx.clone();
     let rows = vec![
-        settings_section_heading("Home tab").with_key("popup-home-tab-heading"),
+        settings_section_heading("Usage Widget").with_key("popup-home-tab-heading"),
         settings_toggle_card(
             "Show on Home tab",
             show_total_spend_on_all_tab,
