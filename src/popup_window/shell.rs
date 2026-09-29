@@ -757,36 +757,71 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                     ),
                     ProviderKind::Grok => ("provider-tab-grok", "Grok", PopupView::Grok),
                 };
-                provider_tabs.push(popup_tab_button(
-                    tab_id,
-                    Some(icon_name),
-                    None,
-                    tip,
-                    selected_view == view,
-                    ui.has_provider_error(*provider),
-                    ui.use_colored_provider_icons,
-                    color_scheme,
-                    &hovered_action,
-                    set_hovered_action.clone(),
-                    on_tab_wheel.clone(),
-                    {
-                        let pager_dispatch = pager_dispatch.clone();
-                        move || pager_dispatch.call(PagerAction::Select(view))
-                    },
-                ));
+                provider_tabs.push(
+                    popup_tab_button(
+                        tab_id,
+                        Some(icon_name),
+                        None,
+                        tip,
+                        selected_view == view,
+                        ui.has_provider_error(*provider),
+                        ui.use_colored_provider_icons,
+                        color_scheme,
+                        &hovered_action,
+                        set_hovered_action.clone(),
+                        on_tab_wheel.clone(),
+                        {
+                            let pager_dispatch = pager_dispatch.clone();
+                            move || pager_dispatch.call(PagerAction::Select(view))
+                        },
+                    )
+                    .reorder_item({
+                        let settings_tx = settings_tx.clone();
+                        let set_ui = set_ui.clone();
+                        let ui = ui.clone();
+                        let visible = enabled_provider_order.clone();
+                        ReorderItem::new(
+                            provider.id(),
+                            "popup-provider-tabs",
+                            page_animations_enabled,
+                            move |(from, to): (String, String)| {
+                                let (Some(from), Some(to)) =
+                                    (ProviderKind::from_id(&from), ProviderKind::from_id(&to))
+                                else {
+                                    return;
+                                };
+                                let set_ui = set_ui.clone();
+                                let mut ui = ui.clone();
+                                crate::settings_window::persist_update(
+                                    settings_tx.clone(),
+                                    |settings| {
+                                        if settings.reorder_providers(from, to, &visible) {
+                                            ui.popup_order = settings.popup_order.clone();
+                                            set_ui.call(ui);
+                                        }
+                                    },
+                                );
+                            },
+                        )
+                    }),
+                );
             }
         }
-        let tabs_key = provider_tabs_key(
-            &enabled_provider_order,
-            ui.usage_stats_enabled,
-            show_provider_icon_tabs,
-            ui.use_colored_provider_icons,
-            color_scheme,
-            &enabled_provider_order
-                .iter()
-                .copied()
-                .filter(|provider| ui.has_provider_error(*provider))
-                .collect::<Vec<_>>(),
+        let tabs_key = format!(
+            "{}-animations={}",
+            provider_tabs_key(
+                &enabled_provider_order,
+                ui.usage_stats_enabled,
+                show_provider_icon_tabs,
+                ui.use_colored_provider_icons,
+                color_scheme,
+                &enabled_provider_order
+                    .iter()
+                    .copied()
+                    .filter(|provider| ui.has_provider_error(*provider))
+                    .collect::<Vec<_>>(),
+            ),
+            page_animations_enabled
         );
         horizontal_wheel_strip(
             hstack(provider_tabs)

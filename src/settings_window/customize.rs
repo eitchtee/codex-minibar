@@ -1,5 +1,5 @@
 use super::persistence::{persist_bool, persist_update};
-use super::shared::{enabled_providers, settings_section_heading};
+use super::shared::settings_section_heading;
 use super::*;
 
 fn persist_popup_brick(
@@ -38,34 +38,16 @@ fn persist_popup_provider_all(
 }
 
 pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Element>) {
-    let codex_enabled = ctx.codex_enabled;
-    let claude_enabled = ctx.claude_enabled;
-    let cursor_enabled = ctx.cursor_enabled;
-    let opencode_zen_enabled = ctx.opencode_zen_enabled;
-    let opencode_go_enabled = ctx.opencode_go_enabled;
-    let openrouter_enabled = ctx.openrouter_enabled;
-    let antigravity_enabled = ctx.antigravity_enabled;
-    let grok_enabled = ctx.grok_enabled;
-    let popup_order = ctx.popup_order;
     let use_colored_provider_icons = ctx.use_colored_provider_icons;
     let show_used_percentage = ctx.show_used_percentage;
     let show_usage_pace = ctx.show_usage_pace;
     let compact_usage_cards = ctx.compact_usage_cards;
     let show_account_name = ctx.show_account_name;
-    let popup_visibility = ctx.popup_visibility;
-    let discovered_popup_bricks = ctx.discovered_popup_bricks;
-    let show_total_spend_on_all_tab = ctx.show_total_spend_on_all_tab;
-    let total_spend_presentation = ctx.total_spend_presentation;
-    let expanded_popup_provider = ctx.expanded_popup_provider;
     let set_use_colored_provider_icons = ctx.set_use_colored_provider_icons.clone();
     let set_show_used_percentage = ctx.set_show_used_percentage.clone();
     let set_show_usage_pace = ctx.set_show_usage_pace.clone();
     let set_compact_usage_cards = ctx.set_compact_usage_cards.clone();
     let set_show_account_name = ctx.set_show_account_name.clone();
-    let set_popup_visibility = ctx.set_popup_visibility.clone();
-    let set_show_total_spend_on_all_tab = ctx.set_show_total_spend_on_all_tab.clone();
-    let set_total_spend_presentation = ctx.set_total_spend_presentation.clone();
-    let set_expanded_popup_provider = ctx.set_expanded_popup_provider.clone();
     let hovered_card_id = ctx.hovered_card_id;
     let set_hovered_card_id = ctx.set_hovered_card_id.clone();
     let settings_tx = ctx.settings_tx.clone();
@@ -74,21 +56,6 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let apply_show_usage_pace = settings_tx.clone();
     let apply_compact_usage_cards = settings_tx.clone();
     let apply_show_account_name = settings_tx.clone();
-    let providers: Vec<ProviderKind> = popup_order
-        .iter()
-        .filter_map(|widget| widget.as_provider())
-        .collect();
-    let enabled = enabled_providers(
-        &providers,
-        codex_enabled,
-        claude_enabled,
-        cursor_enabled,
-        opencode_zen_enabled,
-        opencode_go_enabled,
-        openrouter_enabled,
-        antigravity_enabled,
-        grok_enabled,
-    );
     let mut rows = vec![
         settings_section_heading("Tabs").with_key("customize-tabs-heading"),
         settings_toggle_card(
@@ -207,44 +174,21 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         )
         .with_key("customize-show-account-name"),
     ]);
-    rows.extend(popup_settings_cards(
-        popup_visibility,
-        discovered_popup_bricks,
-        popup_order,
-        &enabled,
-        show_total_spend_on_all_tab,
-        total_spend_presentation,
-        expanded_popup_provider,
-        set_expanded_popup_provider,
-        set_popup_visibility,
-        set_show_total_spend_on_all_tab,
-        set_total_spend_presentation,
-        hovered_card_id,
-        set_hovered_card_id.clone(),
-        settings_tx.clone(),
-    ));
+    rows.extend(home_settings_cards(ctx));
     ("Customize", rows)
 }
 
-pub(super) fn popup_settings_cards(
-    popup_visibility: &PopupVisibility,
-    discovered_popup_bricks: &BTreeMap<String, String>,
-    popup_order: &[PopupWidgetKind],
-    enabled_providers: &[ProviderKind],
-    show_total_spend_on_all_tab: bool,
-    total_spend_presentation: TotalSpendPresentation,
-    expanded_popup_provider: &Option<String>,
-    set_expanded_popup_provider: SetState<Option<String>>,
-    set_popup_visibility: SetState<PopupVisibility>,
-    set_show_total_spend_on_all_tab: SetState<bool>,
-    set_total_spend_presentation: SetState<TotalSpendPresentation>,
-    hovered_card_id: &Option<String>,
-    set_hovered_card_id: SetState<Option<String>>,
-    settings_tx: Sender<Settings>,
-) -> Vec<Element> {
+pub(super) fn home_settings_cards(ctx: &SettingsPageContext<'_>) -> Vec<Element> {
+    let show_total_spend_on_all_tab = ctx.show_total_spend_on_all_tab;
+    let total_spend_presentation = ctx.total_spend_presentation;
+    let set_show_total_spend_on_all_tab = ctx.set_show_total_spend_on_all_tab.clone();
+    let set_total_spend_presentation = ctx.set_total_spend_presentation.clone();
+    let hovered_card_id = ctx.hovered_card_id;
+    let set_hovered_card_id = ctx.set_hovered_card_id.clone();
+    let settings_tx = ctx.settings_tx.clone();
     let apply_show_total_spend = settings_tx.clone();
     let apply_total_spend_presentation = settings_tx.clone();
-    let mut rows = vec![
+    let rows = vec![
         settings_section_heading("Home tab").with_key("popup-home-tab-heading"),
         settings_toggle_card(
             "Show on Home tab",
@@ -284,117 +228,107 @@ pub(super) fn popup_settings_cards(
             set_hovered_card_id.clone(),
         )
         .with_key("popup-total-spend-layout"),
-        settings_section_heading("Provider cards").with_key("popup-provider-cards-heading"),
     ];
 
-    let ordered_enabled: Vec<ProviderKind> = popup_order
-        .iter()
-        .filter_map(|widget| widget.as_provider())
-        .filter(|provider| enabled_providers.contains(provider))
-        .collect();
-
-    if ordered_enabled.is_empty() {
-        rows.push(
-            settings_info_card("Popup cards", "Turn on a provider to set up its cards.")
-                .with_key("popup-empty"),
-        );
-    }
-
-    for provider in ordered_enabled {
-        let descriptor = crate::provider_registry::descriptor(provider);
-        let provider_id = provider.id().to_string();
-        let is_expanded = expanded_popup_provider.as_deref() == Some(provider_id.as_str());
-        let expand_id = provider_id.clone();
-        let expand_setter = set_expanded_popup_provider.clone();
-        let section_all = popup_visibility.provider_shown_on_all(provider);
-        let mut brick_rows = vec![settings_brick_table_header(provider.id())];
-
-        let extra_ids = popup_visibility
-            .bricks
-            .keys()
-            .chain(discovered_popup_bricks.keys())
-            .cloned()
-            .collect::<Vec<_>>();
-        for brick_id in crate::provider_registry::settings_brick_ids(provider, &extra_ids) {
-            let snapshot_all = popup_visibility.clone();
-            let snapshot_tab = popup_visibility.clone();
-            let visibility = snapshot_all.visibility_for(&brick_id);
-            let label = crate::provider_registry::settings_brick_label(
-                provider,
-                &brick_id,
-                discovered_popup_bricks,
-            );
-            let brick_id_for_all = brick_id.clone();
-            let brick_id_for_tab = brick_id.clone();
-            let set_visibility_all = set_popup_visibility.clone();
-            let set_visibility_tab = set_popup_visibility.clone();
-            let settings_tx_all = settings_tx.clone();
-            let settings_tx_tab = settings_tx.clone();
-            brick_rows.push(settings_brick_row(
-                label,
-                visibility.all_tab,
-                visibility.provider_tab,
-                section_all,
-                move |all_tab| {
-                    let provider_tab = snapshot_all.visibility_for(&brick_id_for_all).provider_tab;
-                    persist_popup_brick(
-                        &snapshot_all,
-                        set_visibility_all.clone(),
-                        settings_tx_all.clone(),
-                        brick_id_for_all.clone(),
-                        all_tab,
-                        provider_tab,
-                    );
-                },
-                move |provider_tab| {
-                    let all_tab = snapshot_tab.visibility_for(&brick_id_for_tab).all_tab;
-                    persist_popup_brick(
-                        &snapshot_tab,
-                        set_visibility_tab.clone(),
-                        settings_tx_tab.clone(),
-                        brick_id_for_tab.clone(),
-                        all_tab,
-                        provider_tab,
-                    );
-                },
-                &format!("{}-{}", provider.id(), brick_id),
-            ));
-        }
-
-        let section_snapshot = popup_visibility.clone();
-        let set_section = set_popup_visibility.clone();
-        let section_tx = settings_tx.clone();
-        let expanded_body_height = Some(settings_brick_body_height(brick_rows.len()));
-        rows.push(
-            settings_checkbox_expander(
-                descriptor.display_name,
-                section_all,
-                move |show_on_all| {
-                    persist_popup_provider_all(
-                        &section_snapshot,
-                        set_section.clone(),
-                        section_tx.clone(),
-                        provider,
-                        show_on_all,
-                    );
-                },
-                is_expanded,
-                move |expanded| {
-                    if expanded {
-                        expand_setter.call(Some(expand_id.clone()));
-                    } else {
-                        expand_setter.call(None);
-                    }
-                },
-                expanded_body_height,
-                format!("popup-provider-{}", provider.id()),
-                hovered_card_id,
-                set_hovered_card_id.clone(),
-                vstack(brick_rows).spacing(0.0),
-            )
-            .with_key(format!("popup-provider-{}", provider.id())),
-        );
-    }
-
     rows
+}
+
+pub(super) fn provider_settings_cards(
+    provider: ProviderKind,
+    ctx: &SettingsPageContext<'_>,
+) -> Vec<Element> {
+    let popup_visibility = ctx.popup_visibility;
+    let discovered_popup_bricks = ctx.discovered_popup_bricks;
+    let set_popup_visibility = ctx.set_popup_visibility.clone();
+    let settings_tx = ctx.settings_tx.clone();
+    let section_all = popup_visibility.provider_shown_on_all(provider);
+    let mut brick_rows = vec![settings_brick_table_header(provider.id())];
+
+    let extra_ids = popup_visibility
+        .bricks
+        .keys()
+        .chain(discovered_popup_bricks.keys())
+        .cloned()
+        .collect::<Vec<_>>();
+    for brick_id in crate::provider_registry::settings_brick_ids(provider, &extra_ids) {
+        let snapshot_all = popup_visibility.clone();
+        let snapshot_tab = popup_visibility.clone();
+        let visibility = snapshot_all.visibility_for(&brick_id);
+        let label = crate::provider_registry::settings_brick_label(
+            provider,
+            &brick_id,
+            discovered_popup_bricks,
+        );
+        let brick_id_for_all = brick_id.clone();
+        let brick_id_for_tab = brick_id.clone();
+        let set_visibility_all = set_popup_visibility.clone();
+        let set_visibility_tab = set_popup_visibility.clone();
+        let settings_tx_all = settings_tx.clone();
+        let settings_tx_tab = settings_tx.clone();
+        brick_rows.push(settings_brick_row(
+            label,
+            visibility.all_tab,
+            visibility.provider_tab,
+            section_all,
+            move |all_tab| {
+                let provider_tab = snapshot_all.visibility_for(&brick_id_for_all).provider_tab;
+                persist_popup_brick(
+                    &snapshot_all,
+                    set_visibility_all.clone(),
+                    settings_tx_all.clone(),
+                    brick_id_for_all.clone(),
+                    all_tab,
+                    provider_tab,
+                );
+            },
+            move |provider_tab| {
+                let all_tab = snapshot_tab.visibility_for(&brick_id_for_tab).all_tab;
+                persist_popup_brick(
+                    &snapshot_tab,
+                    set_visibility_tab.clone(),
+                    settings_tx_tab.clone(),
+                    brick_id_for_tab.clone(),
+                    all_tab,
+                    provider_tab,
+                );
+            },
+            &format!("{}-{}", provider.id(), brick_id),
+        ));
+    }
+
+    let section_snapshot = popup_visibility.clone();
+    let set_section = set_popup_visibility.clone();
+    let section_tx = settings_tx.clone();
+    let expanded = ctx.collapsed_popup_provider.as_deref() != Some(provider.id());
+    let set_collapsed = ctx.set_collapsed_popup_provider.clone();
+    let body_height = Some(settings_brick_body_height(brick_rows.len()));
+    vec![
+        settings_checkbox_expander(
+            "Popup cards",
+            section_all,
+            move |show_on_all| {
+                persist_popup_provider_all(
+                    &section_snapshot,
+                    set_section.clone(),
+                    section_tx.clone(),
+                    provider,
+                    show_on_all,
+                )
+            },
+            expanded,
+            move |expanded| {
+                set_collapsed.call(if expanded {
+                    None
+                } else {
+                    Some(provider.id().to_string())
+                })
+            },
+            body_height,
+            format!("popup-provider-{}", provider.id()),
+            ctx.hovered_card_id,
+            ctx.set_hovered_card_id.clone(),
+            vstack(brick_rows).spacing(0.0),
+        )
+        .with_key(format!("popup-provider-{}", provider.id())),
+    ]
 }

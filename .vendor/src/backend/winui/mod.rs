@@ -8,6 +8,7 @@ mod convert;
 mod diag;
 mod generated_attach_event;
 mod generated_set_prop;
+mod reorder;
 use convert::*;
 
 /// Single source of truth for the `Handle` enum, its casts, the
@@ -128,6 +129,7 @@ define_handles! {
 /// [`Backend`] implementation that creates real `Microsoft.UI.Xaml`
 /// controls and drives them on the WinUI thread.
 pub struct WinUIBackend {
+    nav_reorder_revokers: RefCell<FxHashMap<ControlId, Vec<reorder::NavigationHandlers>>>,
     controls: RefCell<FxHashMap<ControlId, Handle>>,
     /// One stable `ToolTip` host per control. Updating the attached property
     /// replaces an open tooltip in WinUI, so update this host's content instead.
@@ -154,6 +156,7 @@ pub struct WinUIBackend {
 
 #[derive(Default)]
 struct PointerRevokerSet {
+    reorder: Vec<windows_core::EventRevoker>,
     tapped: Option<windows_core::EventRevoker>,
     right_tapped: Option<windows_core::EventRevoker>,
     pressed: Option<windows_core::EventRevoker>,
@@ -181,6 +184,7 @@ impl Default for WinUIBackend {
 impl WinUIBackend {
     pub fn new() -> Self {
         Self {
+            nav_reorder_revokers: RefCell::new(FxHashMap::default()),
             controls: RefCell::new(FxHashMap::default()),
             tooltips: RefCell::new(FxHashMap::default()),
             event_revokers: RefCell::new(FxHashMap::default()),
@@ -1596,12 +1600,18 @@ impl Backend for WinUIBackend {
                     ti.cast::<bindings::IFrameworkElement>()?.SetTag(&tag)
                 }
                 (Prop::MenuItems, PropValue::NavMenuItems(items), Handle::NavigationView(nv)) => {
+                    self.nav_reorder_revokers.borrow_mut().remove(&id);
+                    let mut revokers = Vec::new();
                     let menu = nv.MenuItems()?;
                     menu.Clear()?;
                     for item in items {
                         let nv_item = build_nav_view_item(item)?;
+                        if let Some(config) = &item.reorder {
+                            revokers.push(reorder::attach_navigation(&nv_item.cast()?, config)?);
+                        }
                         menu.Append(&nv_item)?;
                     }
+                    self.nav_reorder_revokers.borrow_mut().insert(id, revokers);
                     Ok(())
                 }
                 (Prop::SelectedTag, PropValue::Str(tag), Handle::NavigationView(nv)) => {
@@ -2284,6 +2294,7 @@ impl Backend for WinUIBackend {
     ) {
     }
     fn destroy(&mut self, id: ControlId) {
+        self.nav_reorder_revokers.borrow_mut().remove(&id);
         // Drop per-control revokers for templated selection and pointer/tap handlers.
         self.templated_selection_revokers.borrow_mut().remove(&id);
         self.pointer_revokers.borrow_mut().remove(&id);
@@ -3080,6 +3091,12 @@ impl Backend for WinUIBackend {
             return;
         };
         let mut tokens = PointerRevokerSet::default();
+        if let Some(config) = &handlers.reorder_item {
+            match reorder::attach(&ui, config) {
+                Ok(revokers) => tokens.reorder = revokers,
+                Err(error) => diag::warn(format_args!("attach reorder gesture failed: {error:?}")),
+            }
+        }
 
         if let Some(cb) = handlers.on_tapped.clone() {
             tokens.tapped = ui

@@ -845,6 +845,14 @@ pub trait ElementExt: Sized {
         self
     }
 
+    /// Enable native drag-and-drop reordering within a named scope.
+    fn reorder_item(mut self, item: ReorderItem) -> Self {
+        if let Some(m) = self.modifiers_mut() {
+            ensure_pointer_handlers(m).reorder_item = Some(item);
+        }
+        self
+    }
+
     /// Register a `Tapped` (left-tap) handler.
     fn on_tapped(mut self, f: impl IntoUnitCallback) -> Self {
         if let Some(m) = self.modifiers_mut() {

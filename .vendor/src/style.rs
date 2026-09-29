@@ -627,10 +627,37 @@ impl std::fmt::Debug for dyn AttachedValue {
 
 // --- Pointer event handlers ---
 
+/// An in-process reorder gesture. Only items with a matching scope accept
+/// each other; external files/text never trigger the callback.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReorderItem {
+    pub id: String,
+    pub scope: String,
+    pub animations_enabled: bool,
+    pub on_drop: Callback<(String, String)>,
+}
+
+impl ReorderItem {
+    pub fn new(
+        id: impl Into<String>,
+        scope: impl Into<String>,
+        animations_enabled: bool,
+        on_drop: impl IntoCallback<(String, String)>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            scope: scope.into(),
+            animations_enabled,
+            on_drop: on_drop.into_callback(),
+        }
+    }
+}
+
 /// Bundle of per-element pointer / tap callbacks; each slot is
 /// individually optional.
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct PointerHandlers {
+    pub reorder_item: Option<ReorderItem>,
     pub on_tapped: Option<Callback<()>>,
     pub on_right_tapped: Option<Callback<()>>,
     pub on_pointer_pressed: Option<Callback<PointerEventInfo>>,
@@ -643,7 +670,8 @@ pub struct PointerHandlers {
 
 impl PointerHandlers {
     pub fn is_empty(&self) -> bool {
-        self.on_tapped.is_none()
+        self.reorder_item.is_none()
+            && self.on_tapped.is_none()
             && self.on_right_tapped.is_none()
             && self.on_pointer_pressed.is_none()
             && self.on_pointer_released.is_none()

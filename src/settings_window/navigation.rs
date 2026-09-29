@@ -93,7 +93,7 @@ pub(super) fn provider_order_from_popup(popup_order: &[PopupWidgetKind]) -> Vec<
         .collect()
 }
 
-/// First enabled provider in Customize order. If none are on, the first
+/// First enabled provider in the shared popup order. If none are on, the first
 /// listed provider — same order the Providers pane shows.
 pub(super) fn first_provider_in_order(
     popup_order: &[PopupWidgetKind],
@@ -151,7 +151,7 @@ pub(super) fn root_nav_items(nav_icon_color: &str, use_colored: bool) -> [NavVie
 }
 
 /// Provider pane: enabled providers first, then a divider and the disabled
-/// ones dimmed. Both blocks keep the Customize order.
+/// ones dimmed. Both blocks keep the shared popup order.
 pub(super) fn providers_nav_items(
     popup_order: &[PopupWidgetKind],
     nav_icon_color: &str,

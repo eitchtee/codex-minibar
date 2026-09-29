@@ -19846,6 +19846,22 @@ struct PointerEventHandlerBox<
     F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<PointerRoutedEventArgs>)
         + 'static,
 >(core::marker::PhantomData<(fn() -> F,)>);
+impl PointerEventHandler {
+    /// Construct a delegate for handled routed pointer events (AddHandler).
+    pub(crate) fn new<F>(handler: F) -> Self
+    where
+        F: Fn(
+                windows_core::Ref<windows_core::IInspectable>,
+                windows_core::Ref<PointerRoutedEventArgs>,
+            ) + 'static,
+    {
+        let com = windows_core::imp::DelegateBox::<Self, F>::new(
+            &PointerEventHandlerBox::<F>::VTABLE,
+            handler,
+        );
+        unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+    }
+}
 impl<
     F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<PointerRoutedEventArgs>)
         + 'static,

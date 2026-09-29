@@ -1126,6 +1126,8 @@ pub(super) fn provider_page_content(
             .into(),
     );
 
+    rows.extend(super::customize::provider_settings_cards(provider, ctx));
+
     vstack(rows)
         .spacing(8.0)
         .horizontal_alignment(HorizontalAlignment::Stretch)

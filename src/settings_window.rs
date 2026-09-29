@@ -511,7 +511,7 @@ pub fn render(
         SettingsNavMode::Root => root_selected.tag().to_string(),
         SettingsNavMode::Providers => selected_provider.id().to_string(),
     };
-    let nav_menu_items: Vec<NavViewItem> = match nav_mode {
+    let mut nav_menu_items: Vec<NavViewItem> = match nav_mode {
         SettingsNavMode::Root => root_nav_items(nav_icon_color, use_colored_sidebar_icons).into(),
         SettingsNavMode::Providers => providers_nav_items(
             &popup_order,
@@ -542,6 +542,54 @@ pub fn render(
             openrouter_accounts.len(),
         ),
     };
+    // Keep the callback identity stable so clock/status rerenders do not clear
+    // NavigationView.MenuItems in the middle of a native drag.
+    let provider_reorder_callback = cx
+        .use_ref({
+            let tx = settings_tx.clone();
+            let setter = set_popup_order.clone();
+            Callback::new(move |(from, to): (String, String)| {
+                let (Some(from), Some(to)) =
+                    (ProviderKind::from_id(&from), ProviderKind::from_id(&to))
+                else {
+                    return;
+                };
+                let setter = setter.clone();
+                persist_update(tx.clone(), |settings| {
+                    let enabled = settings.providers.is_enabled(from);
+                    if settings.providers.is_enabled(to) != enabled {
+                        return;
+                    }
+                    let group: Vec<_> = settings
+                        .provider_order()
+                        .into_iter()
+                        .filter(|provider| settings.providers.is_enabled(*provider) == enabled)
+                        .collect();
+                    if settings.reorder_providers(from, to, &group) {
+                        setter.call(settings.popup_order.clone());
+                    }
+                });
+            })
+        })
+        .get_cloned();
+    if nav_mode == SettingsNavMode::Providers {
+        for item in &mut nav_menu_items {
+            let Some(provider) = item.tag.as_deref().and_then(ProviderKind::from_id) else {
+                continue;
+            };
+            let scope = if item.dimmed {
+                "settings-disabled-providers"
+            } else {
+                "settings-enabled-providers"
+            };
+            item.reorder = Some(ReorderItem::new(
+                provider.id(),
+                scope,
+                crate::theme::animations_enabled(),
+                provider_reorder_callback.clone(),
+            ));
+        }
+    }
     let nav_key = match nav_mode {
         SettingsNavMode::Root => format!(
             "settings-nav-root-{}-{nav_icon_color}",
@@ -552,8 +600,9 @@ pub fn render(
             }
         ),
         SettingsNavMode::Providers => format!(
-            "settings-nav-providers-{nav_icon_color}-{}-{}",
+            "settings-nav-providers-{nav_icon_color}-{}-{}-{}",
             providers_nav_signature(&nav_menu_items),
+            crate::theme::animations_enabled(),
             crate::provider_registry::icon(ProviderKind::Codex)
         ),
     };
@@ -735,7 +784,7 @@ pub fn render(
         cx.use_async_state(None::<(String, usize)>);
     let (indicator_modal_visible, set_indicator_modal_visible) = cx.use_async_state(false);
     let (removed_tray_widget, set_removed_tray_widget) = cx.use_state(None::<(usize, TrayWidget)>);
-    let (expanded_popup_provider, set_expanded_popup_provider) = cx.use_state(None::<String>);
+    let (collapsed_popup_provider, set_collapsed_popup_provider) = cx.use_state(None::<String>);
     let (discovered_popup_bricks, set_discovered_popup_bricks) =
         cx.use_state(cached_discovered_popup_bricks());
     let (check_for_updates, set_check_for_updates) = cx.use_state(settings.check_for_updates);
@@ -881,7 +930,7 @@ pub fn render(
         editing_tray_indicator: &editing_tray_indicator,
         removed_tray_widget: &removed_tray_widget,
         hovered_card_id: &hovered_card_id,
-        expanded_popup_provider: &expanded_popup_provider,
+        collapsed_popup_provider: &collapsed_popup_provider,
         check_for_updates,
         notify_on_update,
         forced_reset_feed_enabled,
@@ -952,7 +1001,7 @@ pub fn render(
         set_editing_tray_indicator: set_editing_tray_indicator.clone(),
         set_indicator_modal_visible: set_indicator_modal_visible.clone(),
         set_removed_tray_widget: set_removed_tray_widget.clone(),
-        set_expanded_popup_provider: set_expanded_popup_provider.clone(),
+        set_collapsed_popup_provider: set_collapsed_popup_provider.clone(),
         set_hovered_card_id: set_hovered_card_id.clone(),
         set_check_for_updates: set_check_for_updates.clone(),
         set_notify_on_update: set_notify_on_update.clone(),

@@ -9,6 +9,10 @@
     clippy::missing_transmute_annotations
 )]
 mod bindings;
+// Narrow bindings generated from Windows App SDK 1.8 metadata for drag sources
+// and stock layout transitions; the existing projection only exposed targets.
+#[allow(non_snake_case, non_upper_case_globals, dead_code)]
+mod reorder_bindings;
 
 mod app;
 mod app_shim;

@@ -11,6 +11,21 @@ fn tab_tags_keep_legacy_aliases() {
 }
 
 #[test]
+fn root_navigation_keeps_customize_separate_from_providers() {
+    let items = navigation::root_nav_items("#123456", false);
+    assert!(
+        items
+            .iter()
+            .any(|item| item.tag.as_deref() == Some("providers"))
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item.tag.as_deref() == Some("customize"))
+    );
+}
+
+#[test]
 fn rendered_page_keys_keep_root_and_provider_identity() {
     assert_eq!(
         RenderedPage::Root(Tab::Popup).scroll_key(),

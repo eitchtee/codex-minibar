@@ -2097,6 +2097,44 @@ impl Settings {
         true
     }
 
+    /// Reorder only the supplied provider slots, preserving hidden providers and
+    /// non-provider widgets. Used by both the sidebar and popup tab strip.
+    pub fn reorder_providers(
+        &mut self,
+        active: ProviderKind,
+        target: ProviderKind,
+        visible: &[ProviderKind],
+    ) -> bool {
+        self.normalize_popup_order();
+        let before: Vec<_> = self
+            .provider_order()
+            .into_iter()
+            .filter(|provider| visible.contains(provider))
+            .collect();
+        let Some(from) = before.iter().position(|provider| *provider == active) else {
+            return false;
+        };
+        let Some(to) = before.iter().position(|provider| *provider == target) else {
+            return false;
+        };
+        if from == to {
+            return false;
+        }
+        let mut after = before.clone();
+        let provider = after.remove(from);
+        after.insert(to, provider);
+        let mut reordered = after.into_iter();
+        for widget in &mut self.popup_order {
+            if widget
+                .as_provider()
+                .is_some_and(|provider| before.contains(&provider))
+            {
+                *widget = PopupWidgetKind::from_provider(reordered.next().expect("provider slot"));
+            }
+        }
+        true
+    }
+
     /// Moves any provider earlier or later among provider slots in `popup_order`.
     pub fn move_provider(&mut self, provider: ProviderKind, earlier: bool) -> bool {
         self.normalize_popup_order();
@@ -3685,6 +3723,88 @@ enabled = ["codex", "claude"]
             settings.ordered_enabled_providers(),
             vec![ProviderKind::Codex, ProviderKind::Cursor]
         );
+    }
+
+    #[test]
+    fn provider_drag_preserves_hidden_slots_for_every_membership_and_pair() {
+        let original = PopupWidgetKind::default_order();
+        let providers = ProviderKind::default_order();
+        for mask in 0..(1_u32 << providers.len()) {
+            let visible: Vec<_> = providers
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| mask & (1 << index) != 0)
+                .map(|(_, provider)| *provider)
+                .collect();
+            for from in &providers {
+                for to in &providers {
+                    let mut settings = Settings {
+                        popup_order: original.clone(),
+                        ..Settings::default()
+                    };
+                    let changed = settings.reorder_providers(*from, *to, &visible);
+                    let expected_change =
+                        from != to && visible.contains(from) && visible.contains(to);
+                    assert_eq!(changed, expected_change);
+                    let mut expected_visible: Vec<_> = original
+                        .iter()
+                        .filter_map(|widget| widget.as_provider())
+                        .filter(|provider| visible.contains(provider))
+                        .collect();
+                    if expected_change {
+                        let from_index = expected_visible
+                            .iter()
+                            .position(|provider| provider == from)
+                            .unwrap();
+                        let to_index = expected_visible
+                            .iter()
+                            .position(|provider| provider == to)
+                            .unwrap();
+                        let provider = expected_visible.remove(from_index);
+                        expected_visible.insert(to_index, provider);
+                    }
+                    assert_eq!(
+                        settings
+                            .provider_order()
+                            .into_iter()
+                            .filter(|provider| visible.contains(provider))
+                            .collect::<Vec<_>>(),
+                        expected_visible
+                    );
+                    for (index, widget) in original.iter().enumerate() {
+                        if !widget
+                            .as_provider()
+                            .is_some_and(|provider| visible.contains(&provider))
+                        {
+                            assert_eq!(&settings.popup_order[index], widget);
+                        }
+                    }
+                    let mut normalized = settings.clone();
+                    assert!(!normalized.normalize_popup_order());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn provider_drag_order_round_trips_without_resetting_visibility() {
+        let mut settings = Settings::default();
+        settings
+            .popup_visibility
+            .set_brick("codex.session", false, true);
+        settings
+            .popup_visibility
+            .set_provider_all_tab(ProviderKind::Claude, false);
+        let visibility = settings.popup_visibility.clone();
+        assert!(settings.reorder_providers(
+            ProviderKind::Grok,
+            ProviderKind::Codex,
+            &ProviderKind::default_order()
+        ));
+        let encoded = toml::to_string(&settings).unwrap();
+        let decoded: Settings = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded.popup_order, settings.popup_order);
+        assert_eq!(decoded.popup_visibility, visibility);
     }
 
     #[test]

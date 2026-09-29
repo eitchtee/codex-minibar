@@ -2,6 +2,7 @@ use super::*;
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct NavViewItem {
+    pub reorder: Option<ReorderItem>,
     pub content: String,
     pub tag: Option<String>,
     pub icon_path: Option<(String, String)>,
@@ -21,6 +22,10 @@ pub struct NavViewItem {
     pub children: Vec<Self>,
 }
 impl NavViewItem {
+    pub fn reorder_item(mut self, item: ReorderItem) -> Self {
+        self.reorder = Some(item);
+        self
+    }
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
