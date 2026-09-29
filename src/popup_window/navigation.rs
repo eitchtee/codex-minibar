@@ -380,12 +380,20 @@ impl PopupSection {
     }
 }
 
-pub(super) fn popup_sections(limits: &RateLimits, has_error: bool) -> Vec<PopupSection> {
+pub(super) fn popup_sections(
+    provider: ProviderKind,
+    limits: &RateLimits,
+    has_error: bool,
+) -> Vec<PopupSection> {
     let mut sections = Vec::with_capacity(6);
     if has_error {
         sections.push(PopupSection::Error);
     }
-    if limits.is_free_plan() {
+    if provider == ProviderKind::Kiro {
+        if !limits.secondary.is_empty() {
+            sections.push(PopupSection::Monthly);
+        }
+    } else if limits.is_free_plan() {
         if !limits.secondary.is_empty() {
             sections.push(PopupSection::Monthly);
         }

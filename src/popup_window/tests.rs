@@ -166,7 +166,10 @@ fn usage_statistics_section_respects_its_live_toggle() {
         ..Default::default()
     };
 
-    assert!(popup_sections(&limits, false).contains(&PopupSection::UsageStatistics));
+    assert!(
+        popup_sections(ProviderKind::OpenCodeZen, &limits, false)
+            .contains(&PopupSection::UsageStatistics)
+    );
     let excluded_from_home = all_visible();
     let home_cards = provider_cards(
         ProviderKind::OpenCodeZen,
@@ -532,11 +535,11 @@ fn format_reset_in_future_duration() {
 
 #[test]
 fn free_to_plus_replaces_monthly_with_session_and_weekly_sections() {
-    let free = popup_sections(&plan_limits("free"), false);
+    let free = popup_sections(ProviderKind::Codex, &plan_limits("free"), false);
     assert_eq!(free, vec![PopupSection::Monthly]);
     assert_unique_section_keys(&free);
 
-    let plus = popup_sections(&plan_limits("plus"), false);
+    let plus = popup_sections(ProviderKind::Codex, &plan_limits("plus"), false);
     assert_eq!(plus, vec![PopupSection::FiveHour, PopupSection::Weekly,]);
     assert_unique_section_keys(&plus);
 }
@@ -546,7 +549,7 @@ fn disabled_five_hour_session_is_omitted_from_popup() {
     let mut limits = plan_limits("plus");
     limits.primary = LimitWindow::default();
 
-    let sections = popup_sections(&limits, false);
+    let sections = popup_sections(ProviderKind::Codex, &limits, false);
     assert_eq!(sections, vec![PopupSection::Weekly]);
     assert_unique_section_keys(&sections);
 }
@@ -567,7 +570,7 @@ fn zen_without_quota_windows_does_not_render_placeholder_limit_cards() {
         ..Default::default()
     };
     assert_eq!(
-        popup_sections(&limits, false),
+        popup_sections(ProviderKind::OpenCodeZen, &limits, false),
         vec![PopupSection::UsageStatistics]
     );
 }
@@ -584,11 +587,11 @@ fn credits_only_render_for_a_real_balance_or_unlimited_access() {
     limits.credits.has_credits = true;
     limits.credits.balance = Some("undefined".into());
     assert_eq!(credits_display_value(&limits), None);
-    assert!(!popup_sections(&limits, false).contains(&PopupSection::Credits));
+    assert!(!popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::Credits));
 
     limits.credits.balance = Some("$12.50".into());
     assert_eq!(credits_display_value(&limits).as_deref(), Some("$12.50"));
-    assert!(popup_sections(&limits, false).contains(&PopupSection::Credits));
+    assert!(popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::Credits));
 
     limits.credits = Default::default();
     limits.credits.unlimited = true;
@@ -645,7 +648,7 @@ fn sections_keep_banked_resets_singleton() {
         ..Default::default()
     });
 
-    let sections = popup_sections(&limits, true);
+    let sections = popup_sections(ProviderKind::Codex, &limits, true);
     assert_eq!(
         sections,
         vec![
@@ -666,7 +669,7 @@ fn banked_resets_section_is_available_when_data_exists() {
         ..Default::default()
     });
 
-    assert!(popup_sections(&limits, false).contains(&PopupSection::BankedResets));
+    assert!(popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::BankedResets));
 }
 
 #[test]

@@ -109,7 +109,7 @@ pub(super) fn provider_cards(
         ProviderKind::OpenRouter => ("Spending", "Spending", "Spending"),
         ProviderKind::Antigravity => ("Gemini", "Gemini", "Claude + GPT"),
         ProviderKind::Grok => ("Credits", "Credits", "Credits"),
-        ProviderKind::Kiro => ("Credits", "Credits", "Credits"),
+        ProviderKind::Kiro => ("Monthly Credits", "Credits", "Credits"),
         _ => ("Monthly", "5h Session", "Weekly"),
     };
     let mut trailing: Vec<Element> = Vec::new();
@@ -323,7 +323,7 @@ pub(super) fn provider_cards(
         && show_usage_stats
         && (limits.usage.has_data() || provider == ProviderKind::Cursor);
     cards.extend(
-        popup_sections(limits, false)
+        popup_sections(provider, limits, false)
             .into_iter()
             .filter(|section| {
                 matches!(

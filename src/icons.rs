@@ -5,9 +5,10 @@ use windows_reactor::*;
 
 /// Path data plus SVG viewBox dimensions so WinUI Viewbox preserves its aspect ratio.
 pub struct IconGeom {
-    pub path: &'static str,
+    pub path: String,
     pub canvas_width: f64,
     pub canvas_height: f64,
+    pub even_odd: bool,
 }
 
 pub fn geom(name: &str) -> IconGeom {
@@ -78,15 +79,22 @@ pub fn geom(name: &str) -> IconGeom {
     let (canvas_width, canvas_height) = viewbox_size(svg);
     let start = svg.find(" d=\"").expect("Iconify SVG path") + 4;
     let end = svg[start..].find('"').expect("Iconify SVG path terminator") + start;
+    let path = svg[start..end].to_owned();
     IconGeom {
-        path: &svg[start..end],
+        path,
         canvas_width,
         canvas_height,
+        even_odd: name == "kiro",
     }
 }
 
-pub fn data(name: &str) -> &'static str {
-    geom(name).path
+pub fn data(name: &str) -> String {
+    let icon = geom(name);
+    if icon.even_odd {
+        format!("F0 {}", icon.path)
+    } else {
+        icon.path
+    }
 }
 
 /// Brand tint used by provider marks on light/dark surfaces.
@@ -191,10 +199,11 @@ pub fn element(name: &'static str, size: f64, color: Color) -> Element {
         if let Some(native) = native
             && let Err(error) = crate::acrylic::install_colored_icon_into(
                 native,
-                icon.path,
+                &icon.path,
                 icon.canvas_width,
                 icon.canvas_height,
                 (color.r, color.g, color.b),
+                icon.even_odd,
             )
         {
             eprintln!("Could not install filled icon: {error:?}");
@@ -223,9 +232,10 @@ pub fn accent_element(name: &'static str, size: f64) -> Element {
             && let Err(error) =
                 crate::acrylic::install_accent_icon_into(
                     native,
-                    icon.path,
+                    &icon.path,
                     icon.canvas_width,
                     icon.canvas_height,
+                    icon.even_odd,
                 )
         {
             eprintln!("Could not install accent filled icon: {error:?}");
@@ -249,9 +259,10 @@ pub fn info_bar_error_element(name: &'static str, size: f64) -> Element {
             && let Err(error) =
                 crate::acrylic::install_info_bar_error_icon_into(
                     native,
-                    icon.path,
+                    &icon.path,
                     icon.canvas_width,
                     icon.canvas_height,
+                    icon.even_odd,
                 )
         {
             eprintln!("Could not install InfoBar error icon: {error:?}");

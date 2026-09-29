@@ -69,9 +69,14 @@ The app does not copy provider credentials into its ordinary settings file. It t
 Codex app server, reads Claude Code's existing local OAuth session, reads OpenCode's local
 configuration/history, reuses the official Antigravity or Grok CLI sign-in, reads Kiro's cached
 monthly-credit snapshot from its local state database in read-only mode, or requests OpenRouter key
-usage. Kiro credentials are not read. Kiro's subscription credits stay separate from API-equivalent
-Total Spend. Optional OpenCode and OpenRouter manual API keys are protected with Windows user-scoped
-DPAPI storage. The app stores its own settings and usage history in your Windows user profile.
+usage. Plan and account labels come from Kiro's local usage log when present; Minibar does not open
+Kiro auth-token files. Kiro subscription credits stay separate from API-equivalent Total Spend.
+Optional OpenCode and OpenRouter manual API keys are protected with Windows user-scoped DPAPI
+storage. The app stores its own settings and usage history in your Windows user profile.
+
+Kiro's plan appears on its provider card. The account label uses Kiro's display name when available,
+then its email address, and follows the **Show account name** preference. If Kiro redacts that value
+in its local log, Minibar hides the label instead of showing the redaction marker.
 
 For Antigravity, run `agy` and complete its normal sign-in once; Minibar reads that existing
 Windows Credential Manager session and never stores it in app settings. For Grok, run `grok login`;

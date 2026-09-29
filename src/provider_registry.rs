@@ -145,9 +145,11 @@ const GROK_METRICS: &[MetricDescriptor] = &[MetricDescriptor {
 }];
 
 const KIRO_METRICS: &[MetricDescriptor] = &[MetricDescriptor {
+    // Keep the original Kiro metric id so existing tray and popup visibility
+    // settings survive the switch from an extra lane to the primary monthly quota.
     id: "kiro.additional.credits",
     label: "Monthly credits",
-    source: MetricSource::Additional("credits"),
+    source: MetricSource::Secondary,
 }];
 
 pub const PROVIDERS: &[ProviderDescriptor] = &[
@@ -367,7 +369,10 @@ pub fn supports_banked_resets(provider: ProviderKind) -> bool {
 pub fn supports_credits(provider: ProviderKind) -> bool {
     !matches!(
         provider,
-        ProviderKind::OpenRouter | ProviderKind::Antigravity | ProviderKind::Grok
+        ProviderKind::OpenRouter
+            | ProviderKind::Antigravity
+            | ProviderKind::Grok
+            | ProviderKind::Kiro
     )
 }
 

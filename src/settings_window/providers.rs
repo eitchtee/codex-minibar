@@ -138,8 +138,12 @@ pub(super) fn provider_install_status(
         }
         ProviderKind::Kiro => {
             let detected = crate::kiro::has_cached_usage();
-            let detail = detected.then(|| "Kiro IDE monthly usage cache".into());
-            (detail, None, detected.then_some(ProviderInstallSource::App))
+            let source_path = crate::kiro::detected_source_path();
+            (
+                source_path.as_deref().map(display_fs_path),
+                None,
+                detected.then_some(ProviderInstallSource::App),
+            )
         }
     };
     ProviderInstallStatus {
@@ -833,7 +837,7 @@ fn provider_description(provider: ProviderKind) -> &'static str {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
         ProviderKind::Kiro => {
-            "Reads monthly Kiro credits from the usage snapshot Kiro IDE stores locally."
+            "Reads Kiro's monthly credits and uses its local plan/account labels when available."
         }
     }
 }
