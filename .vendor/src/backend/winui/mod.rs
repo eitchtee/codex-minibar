@@ -156,7 +156,7 @@ pub struct WinUIBackend {
 
 #[derive(Default)]
 struct PointerRevokerSet {
-    reorder: Vec<windows_core::EventRevoker>,
+    reorder: Option<reorder::NavigationHandlers>,
     tapped: Option<windows_core::EventRevoker>,
     right_tapped: Option<windows_core::EventRevoker>,
     pressed: Option<windows_core::EventRevoker>,
@@ -1606,10 +1606,21 @@ impl Backend for WinUIBackend {
                     menu.Clear()?;
                     for item in items {
                         let nv_item = build_nav_view_item(item)?;
-                        if let Some(config) = &item.reorder {
-                            revokers.push(reorder::attach_navigation(&nv_item.cast()?, config)?);
-                        }
+                        // Navigation must exist even if optional drag setup fails.
+                        // Never abort menu construction on a reorder-only error.
                         menu.Append(&nv_item)?;
+                        if let Some(config) = &item.reorder {
+                            match nv_item
+                                .cast()
+                                .and_then(|ui| reorder::attach_navigation(&ui, config))
+                            {
+                                Ok(handlers) => revokers.push(handlers),
+                                Err(error) => diag::warn(format_args!(
+                                    "attach navigation reorder failed for {}: {error:?}",
+                                    config.id
+                                )),
+                            }
+                        }
                     }
                     self.nav_reorder_revokers.borrow_mut().insert(id, revokers);
                     Ok(())
@@ -3092,8 +3103,8 @@ impl Backend for WinUIBackend {
         };
         let mut tokens = PointerRevokerSet::default();
         if let Some(config) = &handlers.reorder_item {
-            match reorder::attach(&ui, config) {
-                Ok(revokers) => tokens.reorder = revokers,
+            match reorder::attach_navigation(&ui, config) {
+                Ok(handlers) => tokens.reorder = Some(handlers),
                 Err(error) => diag::warn(format_args!("attach reorder gesture failed: {error:?}")),
             }
         }

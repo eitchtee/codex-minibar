@@ -1257,13 +1257,26 @@ pub(super) fn provider_page_content(
             .with_key("provider-off-note"),
         );
     }
-    let sections = match provider {
+    let mut sections = match provider {
         ProviderKind::OpenRouter => openrouter_sections(ctx),
         ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo => {
             opencode_sections(provider, status, ctx)
         }
         _ => install_sections(provider, status, ctx),
     };
+    let appearance_position = sections
+        .iter()
+        .position(|section| section.key() == Some("advanced-header"))
+        .unwrap_or(sections.len());
+    let mut appearance = Vec::new();
+    if !sections
+        .iter()
+        .any(|section| section.key() == Some("appearance-header"))
+    {
+        appearance.push(section_header("Appearance", None, None).with_key("appearance-header"));
+    }
+    appearance.extend(super::customize::provider_settings_cards(provider, ctx));
+    sections.splice(appearance_position..appearance_position, appearance);
     rows.push(
         vstack(sections)
             .spacing(4.0)
@@ -1273,8 +1286,6 @@ pub(super) fn provider_page_content(
             .with_key(format!("provider-{}-sections", provider.id()))
             .into(),
     );
-
-    rows.extend(super::customize::provider_settings_cards(provider, ctx));
 
     vstack(rows)
         .spacing(8.0)
