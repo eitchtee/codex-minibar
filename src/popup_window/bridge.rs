@@ -117,6 +117,7 @@ pub(super) fn start_background_bridge(
             provider_errors: state.startup_provider_errors.iter().cloned().collect(),
             last_activation: format_last_activation(&RateLimits::default(), fallback_attempt),
             show_used_percentage: state.settings.show_used_percentage,
+            show_usage_values: state.settings.show_usage_values,
             show_usage_pace: state.settings.show_usage_pace,
             compact_usage_cards: state.settings.compact_usage_cards,
             popup_visibility: state.settings.popup_visibility.clone(),
@@ -237,6 +238,7 @@ pub(super) fn start_background_bridge(
             ui.popup_background_material = settings.popup_background_material;
             ui.time_format = settings.time_format;
             ui.show_used_percentage = settings.show_used_percentage;
+            ui.show_usage_values = settings.show_usage_values;
             ui.show_usage_pace = settings.show_usage_pace;
             ui.compact_usage_cards = settings.compact_usage_cards;
             ui.popup_visibility = settings.popup_visibility.clone();

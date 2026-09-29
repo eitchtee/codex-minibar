@@ -38,6 +38,7 @@ pub(super) struct SettingsWindowState {
     pub(super) reset_announcement_refresh_interval: SetState<ResetAnnouncementRefreshInterval>,
     pub(super) start_at_login: SetState<bool>,
     pub(super) show_used_percentage: SetState<bool>,
+    pub(super) show_usage_values: SetState<bool>,
     pub(super) show_usage_pace: SetState<bool>,
     pub(super) compact_usage_cards: SetState<bool>,
     pub(super) popup_visibility: SetState<PopupVisibility>,
@@ -144,6 +145,7 @@ impl SettingsWindowState {
         self.start_at_login.call(settings.start_at_login);
         self.show_used_percentage
             .call(settings.show_used_percentage);
+        self.show_usage_values.call(settings.show_usage_values);
         self.show_usage_pace.call(settings.show_usage_pace);
         self.compact_usage_cards.call(settings.compact_usage_cards);
         self.popup_visibility
@@ -233,6 +235,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval,
     pub(super) start_at_login: bool,
     pub(super) show_used_percentage: bool,
+    pub(super) show_usage_values: bool,
     pub(super) show_usage_pace: bool,
     pub(super) compact_usage_cards: bool,
     pub(super) popup_visibility: &'a PopupVisibility,
@@ -305,6 +308,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_reset_announcement_refresh_interval: SetState<ResetAnnouncementRefreshInterval>,
     pub(super) set_start_at_login: SetState<bool>,
     pub(super) set_show_used_percentage: SetState<bool>,
+    pub(super) set_show_usage_values: SetState<bool>,
     pub(super) set_show_usage_pace: SetState<bool>,
     pub(super) set_compact_usage_cards: SetState<bool>,
     pub(super) set_popup_visibility: SetState<PopupVisibility>,

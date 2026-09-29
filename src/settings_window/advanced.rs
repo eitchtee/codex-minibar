@@ -41,6 +41,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         ctx.set_reset_announcement_refresh_interval.clone();
     let set_start_at_login = ctx.set_start_at_login.clone();
     let set_show_used_percentage = ctx.set_show_used_percentage.clone();
+    let set_show_usage_values = ctx.set_show_usage_values.clone();
     let set_show_usage_pace = ctx.set_show_usage_pace.clone();
     let set_compact_usage_cards = ctx.set_compact_usage_cards.clone();
     let set_popup_visibility = ctx.set_popup_visibility.clone();
@@ -104,6 +105,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         reset_announcement_refresh_interval: set_reset_announcement_refresh_interval,
         start_at_login: set_start_at_login,
         show_used_percentage: set_show_used_percentage,
+        show_usage_values: set_show_usage_values,
         show_usage_pace: set_show_usage_pace,
         compact_usage_cards: set_compact_usage_cards,
         popup_visibility: set_popup_visibility,

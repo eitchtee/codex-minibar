@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    limits::{LimitWindow, RateLimits},
+    limits::{LimitWindow, RateLimits, UsageAmount},
     usage::UsageStatistics,
     worker::{Activator, LimitProvider, UsageProvider},
 };
@@ -124,6 +124,7 @@ impl KiroClient {
                 resets_at,
                 duration_minutes,
             },
+            secondary_usage_amount: Some(UsageAmount { used, limit }),
             ..RateLimits::default()
         })
     }
@@ -425,6 +426,7 @@ fn limits_from_live_usage(response: KiroLiveUsageResponse) -> Result<RateLimits>
             resets_at,
             duration_minutes,
         },
+        secondary_usage_amount: Some(UsageAmount { used, limit }),
         ..RateLimits::default()
     })
 }

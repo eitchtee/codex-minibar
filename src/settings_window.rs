@@ -713,6 +713,7 @@ pub fn render(
         cx.use_state(settings.reset_announcement_refresh_interval);
     let (show_used_percentage, set_show_used_percentage) =
         cx.use_state(settings.show_used_percentage);
+    let (show_usage_values, set_show_usage_values) = cx.use_state(settings.show_usage_values);
     let (show_usage_pace, set_show_usage_pace) = cx.use_state(settings.show_usage_pace);
     let (compact_usage_cards, set_compact_usage_cards) = cx.use_state(settings.compact_usage_cards);
     let (popup_visibility, set_popup_visibility) = cx.use_state(settings.popup_visibility.clone());
@@ -798,6 +799,7 @@ pub fn render(
             reset_announcement_refresh_interval: set_reset_announcement_refresh_interval.clone(),
             start_at_login: set_start_at_login.clone(),
             show_used_percentage: set_show_used_percentage.clone(),
+            show_usage_values: set_show_usage_values.clone(),
             show_usage_pace: set_show_usage_pace.clone(),
             compact_usage_cards: set_compact_usage_cards.clone(),
             popup_visibility: set_popup_visibility.clone(),
@@ -872,6 +874,7 @@ pub fn render(
         reset_announcement_refresh_interval,
         start_at_login,
         show_used_percentage,
+        show_usage_values,
         show_usage_pace,
         compact_usage_cards,
         popup_visibility: &popup_visibility,
@@ -944,6 +947,7 @@ pub fn render(
         set_reset_announcement_refresh_interval: set_reset_announcement_refresh_interval.clone(),
         set_start_at_login: set_start_at_login.clone(),
         set_show_used_percentage: set_show_used_percentage.clone(),
+        set_show_usage_values: set_show_usage_values.clone(),
         set_show_usage_pace: set_show_usage_pace.clone(),
         set_compact_usage_cards: set_compact_usage_cards.clone(),
         set_popup_visibility: set_popup_visibility.clone(),

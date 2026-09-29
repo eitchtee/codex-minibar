@@ -1649,6 +1649,7 @@ pub struct Settings {
     pub reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval,
     pub start_at_login: bool,
     pub show_used_percentage: bool,
+    pub show_usage_values: bool,
     pub show_usage_pace: bool,
     /// Uses the compact full-card progress layout for popup quota cards.
     /// False preserves the standard header, bar, and footer layout.
@@ -1725,6 +1726,7 @@ impl Default for Settings {
             reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval::default(),
             start_at_login: true,
             show_used_percentage: false,
+            show_usage_values: true,
             show_usage_pace: true,
             compact_usage_cards: false,
             popup_visibility: PopupVisibility::build_defaults(),
