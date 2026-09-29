@@ -10,6 +10,8 @@ static CLAUDE_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static CURSOR_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static ANTIGRAVITY_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static GROK_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
+static KIRO_APP_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
+static KIRO_CLI_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, PartialEq)]
 pub(super) struct ProviderInstallStatus {
@@ -66,6 +68,9 @@ pub(super) fn provider_install_status(
     provider: ProviderKind,
     configured_folder: &str,
 ) -> ProviderInstallStatus {
+    if provider == ProviderKind::Kiro {
+        return provider_install_status_kiro(configured_folder, "");
+    }
     let configured_folder = (!configured_folder.trim().is_empty())
         .then(|| std::path::Path::new(configured_folder.trim()));
     let (app, cli, used) = match provider {
@@ -137,36 +142,49 @@ pub(super) fn provider_install_status(
             )
         }
         ProviderKind::Kiro => {
-            let detected = crate::kiro::source_is_ready();
-            let source_path = crate::kiro::detected_source_path();
-            if crate::kiro::FORCE_CLI_SOURCE {
-                (
-                    None,
-                    source_path.as_deref().map(display_fs_path),
-                    detected.then_some(ProviderInstallSource::Cli),
-                )
-            } else {
-                (
-                    source_path.as_deref().map(display_fs_path),
-                    None,
-                    detected.then_some(ProviderInstallSource::App),
-                )
-            }
+            unreachable!("Kiro status is resolved before the provider match")
         }
     };
     ProviderInstallStatus {
         app,
         cli,
         used,
-        app_applicable: provider != ProviderKind::Grok
-            && !(provider == ProviderKind::Kiro && crate::kiro::FORCE_CLI_SOURCE),
+        app_applicable: provider != ProviderKind::Grok,
         cli_applicable: matches!(
             provider,
             ProviderKind::Codex
                 | ProviderKind::Claude
                 | ProviderKind::Antigravity
                 | ProviderKind::Grok
-        ) || (provider == ProviderKind::Kiro && crate::kiro::FORCE_CLI_SOURCE),
+        ),
+        checking: false,
+    }
+}
+
+pub(super) fn provider_install_status_kiro(
+    configured_app_folder: &str,
+    configured_cli_folder: &str,
+) -> ProviderInstallStatus {
+    let configured_app_folder = (!configured_app_folder.trim().is_empty())
+        .then(|| std::path::Path::new(configured_app_folder.trim()));
+    let configured_cli_folder = (!configured_cli_folder.trim().is_empty())
+        .then(|| std::path::Path::new(configured_cli_folder.trim()));
+    let app_path = crate::kiro::ide_source_path(configured_app_folder);
+    let cli_path = crate::kiro::cli_path(configured_cli_folder);
+    let app_ready = crate::kiro::app_source_is_ready(configured_app_folder);
+    let cli_ready = crate::kiro::cli_source_is_ready(configured_cli_folder);
+    ProviderInstallStatus {
+        app: app_path.as_deref().map(display_fs_path),
+        cli: cli_path.as_deref().map(display_fs_path),
+        used: if app_ready {
+            Some(ProviderInstallSource::App)
+        } else if cli_ready {
+            Some(ProviderInstallSource::Cli)
+        } else {
+            None
+        },
+        app_applicable: true,
+        cli_applicable: true,
         checking: false,
     }
 }
@@ -666,62 +684,79 @@ fn persist_opencode_manual_key(
     Ok(())
 }
 
-fn persist_provider_folder(provider: ProviderKind, value: String, settings_tx: Sender<Settings>) {
-    let Some(generation) = path_save_generation(provider) else {
-        return;
-    };
+#[derive(Clone, Copy)]
+enum ProviderPathTarget {
+    Provider(ProviderKind),
+    KiroApp,
+    KiroCli,
+}
+
+impl ProviderPathTarget {
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Provider(provider) => provider.display_name(),
+            Self::KiroApp | Self::KiroCli => "Kiro",
+        }
+    }
+}
+
+fn persist_path_target(target: ProviderPathTarget, value: String, settings_tx: Sender<Settings>) {
+    let generation = path_save_generation(target);
     let revision = generation.fetch_add(1, Ordering::Relaxed) + 1;
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(300));
-        let Some(generation) = path_save_generation(provider) else {
-            return;
-        };
         if generation.load(Ordering::Relaxed) != revision {
             return;
         }
         let folder = (!value.trim().is_empty()).then(|| PathBuf::from(value.trim()));
         persist_update(settings_tx, move |settings| {
-            assign_provider_folder(settings, provider, folder);
+            assign_provider_folder(settings, target, folder);
         });
     });
 }
 
-fn path_save_generation(provider: ProviderKind) -> Option<&'static AtomicU64> {
-    Some(match provider {
-        ProviderKind::Codex => &CODEX_PATH_SAVE_GEN,
-        ProviderKind::Claude => &CLAUDE_PATH_SAVE_GEN,
-        ProviderKind::Cursor => &CURSOR_PATH_SAVE_GEN,
-        ProviderKind::Antigravity => &ANTIGRAVITY_PATH_SAVE_GEN,
-        ProviderKind::Grok => &GROK_PATH_SAVE_GEN,
-        ProviderKind::OpenCodeZen
-        | ProviderKind::OpenCodeGo
-        | ProviderKind::OpenRouter
-        | ProviderKind::Kiro => {
-            return None;
-        }
-    })
+fn path_save_generation(target: ProviderPathTarget) -> &'static AtomicU64 {
+    match target {
+        ProviderPathTarget::Provider(provider) => match provider {
+            ProviderKind::Codex => &CODEX_PATH_SAVE_GEN,
+            ProviderKind::Claude => &CLAUDE_PATH_SAVE_GEN,
+            ProviderKind::Cursor => &CURSOR_PATH_SAVE_GEN,
+            ProviderKind::Antigravity => &ANTIGRAVITY_PATH_SAVE_GEN,
+            ProviderKind::Grok => &GROK_PATH_SAVE_GEN,
+            ProviderKind::OpenCodeZen
+            | ProviderKind::OpenCodeGo
+            | ProviderKind::OpenRouter
+            | ProviderKind::Kiro => unreachable!("provider has no generic custom path"),
+        },
+        ProviderPathTarget::KiroApp => &KIRO_APP_PATH_SAVE_GEN,
+        ProviderPathTarget::KiroCli => &KIRO_CLI_PATH_SAVE_GEN,
+    }
 }
 
 fn assign_provider_folder(
     settings: &mut Settings,
-    provider: ProviderKind,
+    target: ProviderPathTarget,
     folder: Option<PathBuf>,
 ) {
-    match provider {
-        ProviderKind::Codex => settings.codex_path = folder,
-        ProviderKind::Claude => settings.claude_path = folder,
-        ProviderKind::Cursor => settings.cursor_path = folder,
-        ProviderKind::Antigravity => settings.antigravity_path = folder,
-        ProviderKind::Grok => settings.grok_path = folder,
-        ProviderKind::OpenCodeZen
-        | ProviderKind::OpenCodeGo
-        | ProviderKind::OpenRouter
-        | ProviderKind::Kiro => {}
+    match target {
+        ProviderPathTarget::KiroApp => settings.kiro_path = folder,
+        ProviderPathTarget::KiroCli => settings.kiro_cli_path = folder,
+        ProviderPathTarget::Provider(provider) => match provider {
+            ProviderKind::Codex => settings.codex_path = folder,
+            ProviderKind::Claude => settings.claude_path = folder,
+            ProviderKind::Cursor => settings.cursor_path = folder,
+            ProviderKind::Antigravity => settings.antigravity_path = folder,
+            ProviderKind::Grok => settings.grok_path = folder,
+            ProviderKind::OpenCodeZen
+            | ProviderKind::OpenCodeGo
+            | ProviderKind::OpenRouter
+            | ProviderKind::Kiro => {}
+        },
     }
 }
 
 fn pick_provider_folder(
-    provider: ProviderKind,
+    target: ProviderPathTarget,
     setter: SetState<String>,
     settings_tx: Sender<Settings>,
 ) {
@@ -729,18 +764,18 @@ fn pick_provider_folder(
         Ok(Some(folder)) => {
             let value = folder.display().to_string();
             setter.call(value.clone());
-            persist_provider_folder(provider, value, settings_tx);
+            persist_path_target(target, value, settings_tx);
         }
         Ok(None) => {}
         Err(error) => eprintln!(
             "failed to choose {} folder: {error:#}",
-            provider.display_name()
+            target.display_name()
         ),
     }
 }
 
 fn provider_folder_picker(
-    provider: ProviderKind,
+    target: ProviderPathTarget,
     path: &str,
     placeholder: &str,
     setter: SetState<String>,
@@ -753,7 +788,7 @@ fn provider_folder_picker(
             .placeholder_text(placeholder)
             .on_commit(move |value: String| {
                 setter.call(value.clone());
-                persist_provider_folder(provider, value, settings_tx.clone());
+                persist_path_target(target, value, settings_tx.clone());
             })
             .height(32.0)
             .grid_column(0),
@@ -763,7 +798,7 @@ fn provider_folder_picker(
             .height(32.0)
             .tooltip("Choose folder")
             .on_click(move || {
-                pick_provider_folder(provider, picker_setter.clone(), picker_tx.clone())
+                pick_provider_folder(target, picker_setter.clone(), picker_tx.clone())
             })
             .grid_column(1),
     ))
@@ -845,11 +880,8 @@ fn provider_description(provider: ProviderKind) -> &'static str {
         ProviderKind::Grok => {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
-        ProviderKind::Kiro if crate::kiro::FORCE_CLI_SOURCE => {
-            "Fetches live Kiro credits through the Kiro CLI sign-in."
-        }
         ProviderKind::Kiro => {
-            "Fetches Kiro's live monthly credits and falls back to its local usage cache."
+            "Fetches Kiro's live monthly credits, preferring the IDE when installed and falling back to the CLI."
         }
     }
 }
@@ -862,13 +894,14 @@ fn source_labels(provider: ProviderKind) -> (&'static str, &'static str) {
         ProviderKind::Cursor => ("Cursor app", ""),
         ProviderKind::Antigravity => ("Antigravity app", "agy CLI"),
         ProviderKind::Grok => ("", "Grok CLI"),
-        ProviderKind::Kiro if crate::kiro::FORCE_CLI_SOURCE => ("", "Kiro CLI"),
-        ProviderKind::Kiro => ("Kiro IDE", ""),
+        ProviderKind::Kiro => ("Kiro IDE", "Kiro CLI"),
         ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => ("", ""),
     }
 }
 
 struct FolderConfig<'a> {
+    target: ProviderPathTarget,
+    key: &'static str,
     path: &'a str,
     setter: SetState<String>,
     label: &'static str,
@@ -876,53 +909,83 @@ struct FolderConfig<'a> {
     placeholder: &'static str,
 }
 
-fn folder_config<'a>(
+fn folder_configs<'a>(
     provider: ProviderKind,
     ctx: &SettingsPageContext<'a>,
-) -> Option<FolderConfig<'a>> {
-    Some(match provider {
-        ProviderKind::Codex => FolderConfig {
+) -> Vec<FolderConfig<'a>> {
+    let provider_config = match provider {
+        ProviderKind::Codex => Some(FolderConfig {
+            target: ProviderPathTarget::Provider(provider),
+            key: "codex-cli",
             path: ctx.codex_path,
             setter: ctx.set_codex_path.clone(),
             label: "Custom Codex CLI folder",
             description: "Folder with codex.exe, codex.cmd, or codex.ps1. Leave empty to find it automatically.",
             placeholder: r"C:\Users\you\AppData\Roaming\npm",
-        },
-        ProviderKind::Claude => FolderConfig {
+        }),
+        ProviderKind::Claude => Some(FolderConfig {
+            target: ProviderPathTarget::Provider(provider),
+            key: "claude-cli",
             path: ctx.claude_path,
             setter: ctx.set_claude_path.clone(),
             label: "Custom Claude Code CLI folder",
             description: "Folder with claude.exe, claude.cmd, or claude.ps1. Leave empty to find it automatically.",
             placeholder: r"C:\Users\you\AppData\Roaming\npm",
-        },
-        ProviderKind::Cursor => FolderConfig {
+        }),
+        ProviderKind::Cursor => Some(FolderConfig {
+            target: ProviderPathTarget::Provider(provider),
+            key: "cursor-app",
             path: ctx.cursor_path,
             setter: ctx.set_cursor_path.clone(),
             label: "Custom Cursor app folder",
             description: "Folder with Cursor.exe. Leave empty to find it automatically. Usage still comes from the signed-in profile.",
             placeholder: r"C:\Users\you\AppData\Local\Programs\Cursor",
-        },
-        ProviderKind::Antigravity => FolderConfig {
+        }),
+        ProviderKind::Antigravity => Some(FolderConfig {
+            target: ProviderPathTarget::Provider(provider),
+            key: "agy-cli",
             path: ctx.antigravity_path,
             setter: ctx.set_antigravity_path.clone(),
             label: "Custom agy CLI folder",
             description: "Folder with agy.exe, agy.cmd, or agy.ps1. Leave empty to find it automatically.",
             placeholder: r"C:\Users\you\AppData\Local\agy\bin",
-        },
-        ProviderKind::Grok => FolderConfig {
+        }),
+        ProviderKind::Grok => Some(FolderConfig {
+            target: ProviderPathTarget::Provider(provider),
+            key: "grok-cli",
             path: ctx.grok_path,
             setter: ctx.set_grok_path.clone(),
             label: "Custom Grok CLI folder",
             description: "Folder with grok.exe, grok.cmd, or grok.ps1. Leave empty to find it automatically.",
             placeholder: r"C:\Users\you\.grok\bin",
-        },
-        ProviderKind::OpenCodeZen
-        | ProviderKind::OpenCodeGo
-        | ProviderKind::OpenRouter
-        | ProviderKind::Kiro => {
-            return None;
-        }
-    })
+        }),
+        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => None,
+        ProviderKind::Kiro => None,
+    };
+    if provider == ProviderKind::Kiro {
+        vec![
+            FolderConfig {
+                target: ProviderPathTarget::KiroApp,
+                key: "kiro-app",
+                path: ctx.kiro_path,
+                setter: ctx.set_kiro_path.clone(),
+                label: "Custom Kiro IDE folder",
+                description: "Folder containing Kiro.exe, or the executable itself. Leave empty to find it automatically.",
+                placeholder: r"C:\Users\you\AppData\Local\Programs\Kiro",
+            },
+            FolderConfig {
+                target: ProviderPathTarget::KiroCli,
+                key: "kiro-cli",
+                path: ctx.kiro_cli_path,
+                setter: ctx.set_kiro_cli_path.clone(),
+                label: "Custom Kiro CLI folder",
+                description: "Folder containing kiro-cli.exe, or the executable itself. Leave empty to find it automatically.",
+                placeholder: r"C:\Users\you\AppData\Local\kiro-cli",
+            },
+        ]
+    } else {
+        provider_config.into_iter().collect()
+    }
 }
 
 /// One-line status shared by the page header and the sidebar dot.
@@ -1231,9 +1294,13 @@ fn install_sections(
         out.push(section_header("Appearance", None, None).with_key("appearance-header"));
         out.push(codex_logo_toggle(ctx).with_key("codex-replace-logo"));
     }
-    if let Some(config) = folder_config(provider, ctx) {
+    let folder_configs = folder_configs(provider, ctx);
+    if !folder_configs.is_empty() {
         out.push(section_header("Advanced", None, None).with_key("advanced-header"));
-        out.push(advanced_folder_expander(provider, config, ctx).with_key("advanced-folder"));
+        out.extend(folder_configs.into_iter().map(|config| {
+            let key = config.key;
+            advanced_folder_expander(provider, config, ctx).with_key(key)
+        }));
     }
     out
 }
@@ -1321,13 +1388,16 @@ fn source_row(
                     .vertical_alignment(VerticalAlignment::Center)
                     .into(),
             ];
-            if can_choose_folder && let Some(config) = folder_config(provider, ctx) {
+            if can_choose_folder
+                && let Some(config) = folder_configs(provider, ctx).into_iter().next()
+            {
                 let setter = config.setter;
+                let target = config.target;
                 let settings_tx = ctx.settings_tx.clone();
                 trailing.push(
                     Button::new("Choose folder…")
                         .on_click(move || {
-                            pick_provider_folder(provider, setter.clone(), settings_tx.clone())
+                            pick_provider_folder(target, setter.clone(), settings_tx.clone())
                         })
                         .vertical_alignment(VerticalAlignment::Center)
                         .into(),
@@ -1355,7 +1425,7 @@ fn advanced_folder_expander(
     config: FolderConfig<'_>,
     ctx: &SettingsPageContext<'_>,
 ) -> Element {
-    let card_id = format!("provider-{}-advanced", provider.id());
+    let card_id = format!("provider-{}-advanced-{}", provider.id(), config.key);
     let expanded = ctx.expanded_provider_cards.contains(&card_id);
     let toggle_header = toggle_expanded_card(card_id.clone(), ctx);
     settings_content_expander(
@@ -1373,7 +1443,7 @@ fn advanced_folder_expander(
         vstack((
             secondary_text(config.description),
             provider_folder_picker(
-                provider,
+                config.target,
                 config.path,
                 config.placeholder,
                 config.setter,

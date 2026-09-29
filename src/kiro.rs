@@ -1,5 +1,5 @@
-//! Reads live subscription credits through the installed Kiro CLI's sign-in.
-//! CLI-only mode is temporary; Kiro IDE state and runtime logs are disabled.
+//! Reads live Kiro subscription credits, preferring the IDE installation and
+//! using the CLI installation when the IDE is unavailable.
 
 #[cfg(windows)]
 use std::env;
@@ -26,41 +26,53 @@ const STATE_KEY: &str = "kiro.kiroAgent";
 const USAGE_STATE_KEY: &str = "kiro.resourceNotifications.usageState";
 const USAGE_COMMAND: &str = "GetUsageLimitsCommand";
 
-/// Temporary source override while validating Kiro CLI session support.
-pub const FORCE_CLI_SOURCE: bool = true;
-
 #[derive(Clone, Default)]
 pub struct KiroClient {
+    app_path: Option<PathBuf>,
+    cli_path: Option<PathBuf>,
     state_path: Option<PathBuf>,
 }
 
 impl KiroClient {
     pub fn new() -> Self {
+        Self::with_paths(None, None)
+    }
+
+    pub fn with_paths(app_path: Option<&Path>, cli_explicit_path: Option<&Path>) -> Self {
+        let app_path = installation_path(app_path);
+        let cli_path = cli_path(cli_explicit_path);
+        let state_path = state_database_path();
         Self {
-            state_path: (!FORCE_CLI_SOURCE).then(state_database_path).flatten(),
+            app_path,
+            cli_path,
+            state_path,
         }
     }
 
     fn read_usage_limits(&self) -> Result<RateLimits> {
-        if FORCE_CLI_SOURCE {
-            if cli_path().is_none() {
-                return Err(anyhow!(
-                    "Kiro CLI is not installed; IDE usage support is temporarily disabled"
-                ));
-            }
-            return read_live_usage_limits();
+        if self.app_path.is_none()
+            && self.cli_path.is_none()
+            && !self.state_path.as_ref().is_some_and(|path| path.is_file())
+        {
+            return Err(anyhow!("Kiro IDE and Kiro CLI were not found"));
         }
 
         match read_live_usage_limits() {
             Ok(limits) => Ok(limits),
             Err(error) if crate::worker::is_rate_limited_error(&error) => Err(error),
-            Err(live_error) => self
+            Err(live_error)
+                if self.app_path.is_some()
+                    || self.state_path.as_ref().is_some_and(|path| path.is_file()) =>
+            {
+                self
                 .read_cached_usage_limits()
                 .map_err(|cache_error| {
                     anyhow!(
                         "Kiro's live quota request failed ({live_error:#}) and its local cache could not be read ({cache_error:#})"
                     )
-                }),
+                })
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -168,24 +180,28 @@ impl Activator for KiroActivator {
 }
 
 /// Used for Settings and onboarding readiness without making a network call.
-pub fn source_is_ready() -> bool {
-    if FORCE_CLI_SOURCE {
-        cli_path().is_some() && read_kiro_auth_token().is_ok()
-    } else {
-        KiroClient::new().read_cached_usage_limits().is_ok()
-    }
+pub fn app_source_is_ready(explicit: Option<&Path>) -> bool {
+    let app_found = installation_path(explicit).is_some();
+    app_found
+        && (read_kiro_auth_token().is_ok()
+            || KiroClient::with_paths(explicit, None)
+                .read_cached_usage_limits()
+                .is_ok())
 }
 
-/// Returns the executable shown in the Settings source row.
-pub fn detected_source_path() -> Option<PathBuf> {
-    if FORCE_CLI_SOURCE {
-        cli_path()
-    } else {
-        installation_path().or_else(|| state_database_path().filter(|path| path.is_file()))
-    }
+pub fn cli_source_is_ready(explicit: Option<&Path>) -> bool {
+    cli_path(explicit).is_some() && read_kiro_auth_token().is_ok()
 }
 
-pub fn cli_path() -> Option<PathBuf> {
+pub fn source_is_ready(app_path: Option<&Path>, cli_path: Option<&Path>) -> bool {
+    app_source_is_ready(app_path) || cli_source_is_ready(cli_path)
+}
+
+pub fn ide_source_path(explicit: Option<&Path>) -> Option<PathBuf> {
+    installation_path(explicit).or_else(|| state_database_path().filter(|path| path.is_file()))
+}
+
+pub fn cli_path(explicit: Option<&Path>) -> Option<PathBuf> {
     let mut known = Vec::new();
     #[cfg(windows)]
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
@@ -195,36 +211,47 @@ pub fn cli_path() -> Option<PathBuf> {
         known.push(base.home_dir().join(".local/bin/kiro-cli.exe"));
         known.push(base.home_dir().join(".local/bin/kiro-cli"));
     }
-    crate::provider_cli::executable_candidates(&known, &["kiro-cli.exe", "kiro-cli"])
+    crate::provider_cli::candidates_from(explicit, known, &["kiro-cli.exe", "kiro-cli"])
         .into_iter()
         .next()
 }
 
-fn installation_path() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
-        let program_files = env::var_os("ProgramFiles").map(PathBuf::from);
-        let program_files_x86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
-        local_app_data
-            .into_iter()
-            .map(|path| path.join("Programs/Kiro/Kiro.exe"))
-            .chain(
-                program_files
+pub fn installation_path(explicit: Option<&Path>) -> Option<PathBuf> {
+    explicit
+        .and_then(|path| {
+            if path.is_file() {
+                Some(path.to_path_buf())
+            } else {
+                let executable = path.join("Kiro.exe");
+                executable.is_file().then_some(executable)
+            }
+        })
+        .or_else(|| {
+            #[cfg(windows)]
+            {
+                let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+                let program_files = env::var_os("ProgramFiles").map(PathBuf::from);
+                let program_files_x86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+                local_app_data
                     .into_iter()
-                    .map(|path| path.join("Kiro/Kiro.exe")),
-            )
-            .chain(
-                program_files_x86
-                    .into_iter()
-                    .map(|path| path.join("Kiro/Kiro.exe")),
-            )
-            .find(|path| path.is_file())
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
+                    .map(|path| path.join("Programs/Kiro/Kiro.exe"))
+                    .chain(
+                        program_files
+                            .into_iter()
+                            .map(|path| path.join("Kiro/Kiro.exe")),
+                    )
+                    .chain(
+                        program_files_x86
+                            .into_iter()
+                            .map(|path| path.join("Kiro/Kiro.exe")),
+                    )
+                    .find(|path| path.is_file())
+            }
+            #[cfg(not(windows))]
+            {
+                None
+            }
+        })
 }
 
 fn state_database_path() -> Option<PathBuf> {
@@ -369,7 +396,7 @@ fn read_live_usage_limits() -> Result<RateLimits> {
         }
         Err(ureq::Error::Status(401 | 403, _)) => {
             return Err(anyhow!(
-                "Kiro rejected its saved access token; sign in again with Kiro CLI"
+                "Kiro rejected its saved access token; open Kiro IDE or sign in again with Kiro CLI"
             ));
         }
         Err(ureq::Error::Status(status, _)) => {
@@ -431,13 +458,12 @@ fn limits_from_live_usage(response: KiroLiveUsageResponse) -> Result<RateLimits>
             .and_then(display_plan_name),
         account_name: response.user_info.as_ref().and_then(account_display_name),
     };
-    let local_fallback = if !FORCE_CLI_SOURCE
-        && (resets_at.is_none() || metadata.plan_name.is_none() || metadata.account_name.is_none())
-    {
-        KiroClient::new().read_cached_usage_limits().ok()
-    } else {
-        None
-    };
+    let local_fallback =
+        if resets_at.is_none() || metadata.plan_name.is_none() || metadata.account_name.is_none() {
+            KiroClient::new().read_cached_usage_limits().ok()
+        } else {
+            None
+        };
     if let Some(local) = &local_fallback {
         metadata.plan_name = metadata.plan_name.or_else(|| local.plan_type.clone());
         metadata.account_name = metadata.account_name.or_else(|| local.account_name.clone());
@@ -482,7 +508,7 @@ fn read_kiro_auth_token() -> Result<KiroAuthToken> {
         .is_some_and(|expires_at| expires_at <= Utc::now() + chrono::Duration::seconds(30))
     {
         return Err(anyhow!(
-            "Kiro's saved access token expired; sign in again with Kiro CLI"
+            "Kiro's saved access token expired; open Kiro IDE or sign in again with Kiro CLI"
         ));
     }
     Ok(token)

@@ -1678,6 +1678,14 @@ pub struct Settings {
     /// Optional explicit Grok CLI folder. When unset, discovery continues to
     /// search PATH and the normal Grok home locations.
     pub grok_path: Option<PathBuf>,
+    /// Optional explicit Kiro IDE folder or executable. When unset, discovery
+    /// searches the standard per-user and system install locations.
+    #[serde(default)]
+    pub kiro_path: Option<PathBuf>,
+    /// Optional explicit Kiro CLI folder or executable. When unset, discovery
+    /// searches its standard install locations and PATH.
+    #[serde(default)]
+    pub kiro_cli_path: Option<PathBuf>,
     /// Non-secret revisions used to make manual OpenCode key changes refresh
     /// already-running workers immediately. The key material lives in the
     /// protected secrets store, never in this file.
@@ -1739,6 +1747,8 @@ impl Default for Settings {
             cursor_path: None,
             antigravity_path: None,
             grok_path: None,
+            kiro_path: None,
+            kiro_cli_path: None,
             opencode_zen_credentials_revision: 0,
             opencode_go_credentials_revision: 0,
             openrouter_credentials_revision: 0,

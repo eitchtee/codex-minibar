@@ -159,6 +159,8 @@ pub(super) fn start_background_bridge(
             cursor_path: state.settings.cursor_path.clone(),
             antigravity_path: state.settings.antigravity_path.clone(),
             grok_path: state.settings.grok_path.clone(),
+            kiro_path: state.settings.kiro_path.clone(),
+            kiro_cli_path: state.settings.kiro_cli_path.clone(),
             update_version: update_version_from_phase(&update_phase),
             ..UiState::default()
         };
@@ -289,6 +291,11 @@ pub(super) fn start_background_bridge(
                     settings.antigravity_path != ui.antigravity_path,
                 ),
                 (ProviderKind::Grok, settings.grok_path != ui.grok_path),
+                (
+                    ProviderKind::Kiro,
+                    settings.kiro_path != ui.kiro_path
+                        || settings.kiro_cli_path != ui.kiro_cli_path,
+                ),
                 (ProviderKind::OpenRouter, openrouter_credentials_changed),
             ]
             .into_iter()
@@ -299,6 +306,8 @@ pub(super) fn start_background_bridge(
             ui.cursor_path = settings.cursor_path.clone();
             ui.antigravity_path = settings.antigravity_path.clone();
             ui.grok_path = settings.grok_path.clone();
+            ui.kiro_path = settings.kiro_path.clone();
+            ui.kiro_cli_path = settings.kiro_cli_path.clone();
             for provider in ProviderKind::ALL {
                 if restart.contains(&provider) || !settings.providers.is_enabled(provider) {
                     ui.clear_provider_requests(provider);
