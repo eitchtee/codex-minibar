@@ -1,5 +1,5 @@
-//! Reads live Kiro subscription credits, preferring the IDE installation and
-//! using the CLI installation when the IDE is unavailable.
+//! Reads live Kiro subscription credits, preferring the IDE, then Kiro Crew,
+//! and using the CLI installation when neither desktop app is available.
 
 #[cfg(windows)]
 use std::env;
@@ -29,21 +29,28 @@ const USAGE_COMMAND: &str = "GetUsageLimitsCommand";
 #[derive(Clone, Default)]
 pub struct KiroClient {
     app_path: Option<PathBuf>,
+    crew_path: Option<PathBuf>,
     cli_path: Option<PathBuf>,
     state_path: Option<PathBuf>,
 }
 
 impl KiroClient {
     pub fn new() -> Self {
-        Self::with_paths(None, None)
+        Self::with_paths(None, None, None)
     }
 
-    pub fn with_paths(app_path: Option<&Path>, cli_explicit_path: Option<&Path>) -> Self {
+    pub fn with_paths(
+        app_path: Option<&Path>,
+        crew_path: Option<&Path>,
+        cli_explicit_path: Option<&Path>,
+    ) -> Self {
         let app_path = installation_path(app_path);
+        let crew_path = crew_installation_path(crew_path);
         let cli_path = cli_path(cli_explicit_path);
         let state_path = state_database_path();
         Self {
             app_path,
+            crew_path,
             cli_path,
             state_path,
         }
@@ -51,10 +58,11 @@ impl KiroClient {
 
     fn read_usage_limits(&self) -> Result<RateLimits> {
         if self.app_path.is_none()
+            && self.crew_path.is_none()
             && self.cli_path.is_none()
             && !self.state_path.as_ref().is_some_and(|path| path.is_file())
         {
-            return Err(anyhow!("Kiro IDE and Kiro CLI were not found"));
+            return Err(anyhow!("Kiro IDE, Kiro Crew, and Kiro CLI were not found"));
         }
 
         match read_live_usage_limits() {
@@ -184,21 +192,248 @@ pub fn app_source_is_ready(explicit: Option<&Path>) -> bool {
     let app_found = installation_path(explicit).is_some();
     app_found
         && (read_kiro_auth_token().is_ok()
-            || KiroClient::with_paths(explicit, None)
+            || KiroClient::with_paths(explicit, None, None)
                 .read_cached_usage_limits()
                 .is_ok())
+}
+
+pub fn crew_source_is_ready(explicit: Option<&Path>) -> bool {
+    crew_installation_path(explicit).is_some() && read_kiro_auth_token().is_ok()
 }
 
 pub fn cli_source_is_ready(explicit: Option<&Path>) -> bool {
     cli_path(explicit).is_some() && read_kiro_auth_token().is_ok()
 }
 
-pub fn source_is_ready(app_path: Option<&Path>, cli_path: Option<&Path>) -> bool {
-    app_source_is_ready(app_path) || cli_source_is_ready(cli_path)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KiroSource {
+    Ide,
+    Crew,
+    Cli,
+}
+
+pub fn selected_source(
+    app_path: Option<&Path>,
+    crew_path: Option<&Path>,
+    cli_path: Option<&Path>,
+) -> Option<KiroSource> {
+    if app_source_is_ready(app_path) {
+        Some(KiroSource::Ide)
+    } else if crew_source_is_ready(crew_path) {
+        Some(KiroSource::Crew)
+    } else if cli_source_is_ready(cli_path) {
+        Some(KiroSource::Cli)
+    } else {
+        None
+    }
+}
+
+pub fn source_is_ready(
+    app_path: Option<&Path>,
+    crew_path: Option<&Path>,
+    cli_path: Option<&Path>,
+) -> bool {
+    selected_source(app_path, crew_path, cli_path).is_some()
 }
 
 pub fn ide_source_path(explicit: Option<&Path>) -> Option<PathBuf> {
     installation_path(explicit).or_else(|| state_database_path().filter(|path| path.is_file()))
+}
+
+/// Finds the desktop Kiro Crew app across per-user and all-users installs.
+pub fn crew_installation_path(explicit: Option<&Path>) -> Option<PathBuf> {
+    explicit
+        .and_then(|path| executable_from_crew_path(path, true))
+        .or_else(|| {
+            #[cfg(windows)]
+            {
+                let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+                let program_files = env::var_os("ProgramFiles").map(PathBuf::from);
+                let program_files_x86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+                let mut roots = Vec::new();
+                if let Some(root) = local_app_data {
+                    roots.push(root.join("Programs"));
+                }
+                roots.extend(program_files);
+                roots.extend(program_files_x86);
+                roots
+                    .into_iter()
+                    .flat_map(|root| {
+                        [
+                            "KiroCrew",
+                            "Kiro Crew",
+                            "KiroCrew Nightly",
+                            "Kiro Crew Nightly",
+                        ]
+                        .into_iter()
+                        .map(move |folder| root.join(folder))
+                    })
+                    .chain(registered_crew_install_locations())
+                    .find_map(|path| executable_from_crew_path(&path, false))
+            }
+            #[cfg(not(windows))]
+            {
+                None
+            }
+        })
+}
+
+fn executable_from_crew_path(path: &Path, allow_explicit_file: bool) -> Option<PathBuf> {
+    if path.is_file() {
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if allow_explicit_file || stem.starts_with("kirocrew") {
+            return Some(path.to_path_buf());
+        }
+    }
+    [
+        "KiroCrew.exe",
+        "Kiro Crew.exe",
+        "KiroCrew Nightly.exe",
+        "Kiro Crew Nightly.exe",
+    ]
+    .into_iter()
+    .map(|name| path.join(name))
+    .find(|candidate| candidate.is_file())
+}
+
+#[cfg(windows)]
+fn registered_crew_install_locations() -> Vec<PathBuf> {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+    use windows_sys::Win32::{
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{
+            HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_SZ, RegCloseKey,
+            RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
+        },
+    };
+
+    const UNINSTALL_KEYS: [(HKEY, &str); 3] = [
+        (
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    ];
+    let wide = |value: &str| {
+        value
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>()
+    };
+    let read_value = |key: HKEY, name: &str| -> Option<String> {
+        let value_name = wide(name);
+        let mut value = [0_u16; 2048];
+        let mut size = std::mem::size_of_val(&value) as u32;
+        let status = unsafe {
+            RegGetValueW(
+                key,
+                std::ptr::null(),
+                value_name.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                value.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if status != ERROR_SUCCESS {
+            return None;
+        }
+        let len = value
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(value.len());
+        Some(String::from_utf16_lossy(&value[..len]).trim().to_owned())
+    };
+
+    let mut locations = Vec::new();
+    for (hive, key_path) in UNINSTALL_KEYS {
+        let mut root: HKEY = std::ptr::null_mut();
+        if unsafe { RegOpenKeyExW(hive, wide(key_path).as_ptr(), 0, KEY_READ, &mut root) }
+            != ERROR_SUCCESS
+        {
+            continue;
+        }
+        let mut index = 0;
+        loop {
+            let mut name = [0_u16; 512];
+            let mut name_len = name.len() as u32;
+            if unsafe {
+                RegEnumKeyExW(
+                    root,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut name_len,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            } != ERROR_SUCCESS
+            {
+                break;
+            }
+            index += 1;
+            let subkey_name = OsString::from_wide(&name[..name_len as usize]);
+            let mut install_key: HKEY = std::ptr::null_mut();
+            let subkey = name[..name_len as usize]
+                .iter()
+                .copied()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            if unsafe { RegOpenKeyExW(root, subkey.as_ptr(), 0, KEY_READ, &mut install_key) }
+                != ERROR_SUCCESS
+            {
+                continue;
+            }
+            let product_name = read_value(install_key, "DisplayName")
+                .unwrap_or_else(|| subkey_name.to_string_lossy().into_owned());
+            let normalized_name = product_name
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            if normalized_name.contains("kirocrew") {
+                if let Some(location) =
+                    read_value(install_key, "InstallLocation").filter(|value| !value.is_empty())
+                {
+                    locations.push(PathBuf::from(location));
+                }
+                if let Some(icon) = read_value(install_key, "DisplayIcon") {
+                    let icon = icon.trim();
+                    let icon_path = if let Some(quoted) = icon.strip_prefix('"') {
+                        quoted.split_once('"').map_or(quoted, |(path, _)| path)
+                    } else {
+                        icon.split_once(',').map_or(icon, |(path, _)| path)
+                    };
+                    if !icon_path.trim().is_empty() {
+                        locations.push(PathBuf::from(icon_path.trim()));
+                    }
+                }
+            }
+            unsafe { RegCloseKey(install_key) };
+        }
+        unsafe { RegCloseKey(root) };
+    }
+    locations
+}
+
+#[cfg(not(windows))]
+fn registered_crew_install_locations() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 pub fn cli_path(explicit: Option<&Path>) -> Option<PathBuf> {

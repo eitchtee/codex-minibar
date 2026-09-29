@@ -417,6 +417,12 @@ pub fn render(
             .as_ref()
             .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
     );
+    let (kiro_crew_path, set_kiro_crew_path) = cx.use_state(
+        settings
+            .kiro_crew_path
+            .as_ref()
+            .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+    );
     let (kiro_cli_path, set_kiro_cli_path) = cx.use_state(
         settings
             .kiro_cli_path
@@ -444,14 +450,15 @@ pub fn render(
     let (grok_install_status, set_grok_install_status) =
         cx.use_async_state(ProviderInstallStatus::checking_cli());
     let (kiro_install_status, set_kiro_install_status) =
-        cx.use_async_state(ProviderInstallStatus::checking());
-    let last_status_paths = cx.use_ref(None::<[String; 7]>);
+        cx.use_async_state(ProviderInstallStatus::checking_kiro());
+    let last_status_paths = cx.use_ref(None::<[String; 8]>);
     let status_codex_path = codex_path.clone();
     let status_claude_path = claude_path.clone();
     let status_cursor_path = cursor_path.clone();
     let status_antigravity_path = antigravity_path.clone();
     let status_grok_path = grok_path.clone();
     let status_kiro_path = kiro_path.clone();
+    let status_kiro_crew_path = kiro_crew_path.clone();
     let status_kiro_cli_path = kiro_cli_path.clone();
     cx.use_effect(
         (
@@ -461,6 +468,7 @@ pub fn render(
             antigravity_path.clone(),
             grok_path.clone(),
             kiro_path.clone(),
+            kiro_crew_path.clone(),
             kiro_cli_path.clone(),
             provider_status_revision,
             nav_mode,
@@ -476,6 +484,7 @@ pub fn render(
                 status_antigravity_path.clone(),
                 status_grok_path.clone(),
                 status_kiro_path.clone(),
+                status_kiro_crew_path.clone(),
                 status_kiro_cli_path.clone(),
             ];
             let paths_changed = last_status_paths.get_cloned().as_ref() != Some(&paths);
@@ -489,7 +498,7 @@ pub fn render(
                 set_openrouter_install_status.call(ProviderInstallStatus::checking_app());
                 set_antigravity_install_status.call(ProviderInstallStatus::checking());
                 set_grok_install_status.call(ProviderInstallStatus::checking_cli());
-                set_kiro_install_status.call(ProviderInstallStatus::checking());
+                set_kiro_install_status.call(ProviderInstallStatus::checking_kiro());
             }
             let codex_status = set_codex_install_status.clone();
             let claude_status = set_claude_install_status.clone();
@@ -516,6 +525,7 @@ pub fn render(
                 let grok = provider_install_status(ProviderKind::Grok, &status_grok_path);
                 let kiro = providers::provider_install_status_kiro(
                     &status_kiro_path,
+                    &status_kiro_crew_path,
                     &status_kiro_cli_path,
                 );
                 if PROVIDER_STATUS_GEN.load(Ordering::Relaxed) == generation {
@@ -807,6 +817,7 @@ pub fn render(
             antigravity_path: set_antigravity_path.clone(),
             grok_path: set_grok_path.clone(),
             kiro_path: set_kiro_path.clone(),
+            kiro_crew_path: set_kiro_crew_path.clone(),
             kiro_cli_path: set_kiro_cli_path.clone(),
             popup_order: set_popup_order.clone(),
             use_colored_provider_icons: set_use_colored_provider_icons.clone(),
@@ -868,6 +879,7 @@ pub fn render(
         antigravity_path: &antigravity_path,
         grok_path: &grok_path,
         kiro_path: &kiro_path,
+        kiro_crew_path: &kiro_crew_path,
         kiro_cli_path: &kiro_cli_path,
         codex_install_status: &codex_install_status,
         claude_install_status: &claude_install_status,
@@ -957,6 +969,7 @@ pub fn render(
         set_antigravity_path: set_antigravity_path.clone(),
         set_grok_path: set_grok_path.clone(),
         set_kiro_path: set_kiro_path.clone(),
+        set_kiro_crew_path: set_kiro_crew_path.clone(),
         set_kiro_cli_path: set_kiro_cli_path.clone(),
         set_popup_order: set_popup_order.clone(),
         set_use_colored_provider_icons: set_use_colored_provider_icons.clone(),

@@ -25,6 +25,7 @@ pub(super) struct SettingsWindowState {
     pub(super) antigravity_path: SetState<String>,
     pub(super) grok_path: SetState<String>,
     pub(super) kiro_path: SetState<String>,
+    pub(super) kiro_crew_path: SetState<String>,
     pub(super) kiro_cli_path: SetState<String>,
     pub(super) popup_order: SetState<Vec<PopupWidgetKind>>,
     pub(super) use_colored_provider_icons: SetState<bool>,
@@ -128,6 +129,12 @@ impl SettingsWindowState {
                 .as_ref()
                 .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
         );
+        self.kiro_crew_path.call(
+            settings
+                .kiro_crew_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+        );
         self.kiro_cli_path.call(
             settings
                 .kiro_cli_path
@@ -220,6 +227,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) antigravity_path: &'a str,
     pub(super) grok_path: &'a str,
     pub(super) kiro_path: &'a str,
+    pub(super) kiro_crew_path: &'a str,
     pub(super) kiro_cli_path: &'a str,
     pub(super) codex_install_status: &'a ProviderInstallStatus,
     pub(super) claude_install_status: &'a ProviderInstallStatus,
@@ -309,6 +317,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_antigravity_path: SetState<String>,
     pub(super) set_grok_path: SetState<String>,
     pub(super) set_kiro_path: SetState<String>,
+    pub(super) set_kiro_crew_path: SetState<String>,
     pub(super) set_kiro_cli_path: SetState<String>,
     pub(super) set_popup_order: SetState<Vec<PopupWidgetKind>>,
     pub(super) set_use_colored_provider_icons: SetState<bool>,

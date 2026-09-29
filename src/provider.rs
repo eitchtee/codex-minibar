@@ -183,10 +183,12 @@ pub fn start_provider_worker(
         ProviderKind::Kiro => worker::start_worker(
             crate::kiro::KiroClient::with_paths(
                 settings.kiro_path.as_deref(),
+                settings.kiro_crew_path.as_deref(),
                 settings.kiro_cli_path.as_deref(),
             ),
             crate::kiro::KiroClient::with_paths(
                 settings.kiro_path.as_deref(),
+                settings.kiro_crew_path.as_deref(),
                 settings.kiro_cli_path.as_deref(),
             ),
             crate::kiro::KiroActivator,

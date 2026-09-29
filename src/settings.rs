@@ -1682,6 +1682,10 @@ pub struct Settings {
     /// searches the standard per-user and system install locations.
     #[serde(default)]
     pub kiro_path: Option<PathBuf>,
+    /// Optional explicit Kiro Crew desktop-app folder or executable. When
+    /// unset, discovery checks per-user, all-users, and registered installs.
+    #[serde(default)]
+    pub kiro_crew_path: Option<PathBuf>,
     /// Optional explicit Kiro CLI folder or executable. When unset, discovery
     /// searches its standard install locations and PATH.
     #[serde(default)]
@@ -1748,6 +1752,7 @@ impl Default for Settings {
             antigravity_path: None,
             grok_path: None,
             kiro_path: None,
+            kiro_crew_path: None,
             kiro_cli_path: None,
             opencode_zen_credentials_revision: 0,
             opencode_go_credentials_revision: 0,

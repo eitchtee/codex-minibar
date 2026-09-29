@@ -348,6 +348,7 @@ pub(super) struct UiState {
     pub(super) antigravity_path: Option<std::path::PathBuf>,
     pub(super) grok_path: Option<std::path::PathBuf>,
     pub(super) kiro_path: Option<std::path::PathBuf>,
+    pub(super) kiro_crew_path: Option<std::path::PathBuf>,
     pub(super) kiro_cli_path: Option<std::path::PathBuf>,
     pub(super) update_version: Option<String>,
 }
@@ -402,6 +403,7 @@ impl Default for UiState {
             antigravity_path: None,
             grok_path: None,
             kiro_path: None,
+            kiro_crew_path: None,
             kiro_cli_path: None,
             update_version: None,
         }

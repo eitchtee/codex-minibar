@@ -17,6 +17,7 @@ pub(super) fn detected_providers(settings: &Settings) -> [bool; 9] {
         crate::grok::is_installed(settings.grok_path.as_deref()),
         crate::kiro::source_is_ready(
             settings.kiro_path.as_deref(),
+            settings.kiro_crew_path.as_deref(),
             settings.kiro_cli_path.as_deref(),
         ),
     ]
@@ -184,9 +185,9 @@ pub(super) fn onboarding_render(
                 settings_toggle_card_with_description(
                     "Kiro",
                     Some(if detected[8] {
-                        "Found Kiro IDE or a signed-in Kiro CLI."
+                        "Found Kiro IDE, Kiro Crew, or a signed-in Kiro CLI."
                     } else {
-                        "Not found. Install Kiro IDE or Kiro CLI and sign in to read usage."
+                        "Not found. Install Kiro IDE or Kiro Crew, or sign in to Kiro CLI."
                     }),
                     kiro_enabled,
                     move |value| set_kiro_enabled.call(value),

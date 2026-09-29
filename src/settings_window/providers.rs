@@ -11,14 +11,17 @@ static CURSOR_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static ANTIGRAVITY_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static GROK_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static KIRO_APP_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
+static KIRO_CREW_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 static KIRO_CLI_PATH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, PartialEq)]
 pub(super) struct ProviderInstallStatus {
     app: Option<String>,
+    crew: Option<String>,
     cli: Option<String>,
     used: Option<ProviderInstallSource>,
     app_applicable: bool,
+    crew_applicable: bool,
     cli_applicable: bool,
     checking: bool,
 }
@@ -26,6 +29,7 @@ pub(super) struct ProviderInstallStatus {
 #[derive(Clone, Copy, PartialEq)]
 enum ProviderInstallSource {
     App,
+    Crew,
     Cli,
 }
 
@@ -33,9 +37,11 @@ impl ProviderInstallStatus {
     pub(super) fn checking() -> Self {
         Self {
             app: None,
+            crew: None,
             cli: None,
             used: None,
             app_applicable: true,
+            crew_applicable: false,
             cli_applicable: true,
             checking: true,
         }
@@ -44,9 +50,11 @@ impl ProviderInstallStatus {
     pub(super) fn checking_app() -> Self {
         Self {
             app: None,
+            crew: None,
             cli: None,
             used: None,
             app_applicable: true,
+            crew_applicable: false,
             cli_applicable: false,
             checking: true,
         }
@@ -55,9 +63,24 @@ impl ProviderInstallStatus {
     pub(super) fn checking_cli() -> Self {
         Self {
             app: None,
+            crew: None,
             cli: None,
             used: None,
             app_applicable: false,
+            crew_applicable: false,
+            cli_applicable: true,
+            checking: true,
+        }
+    }
+
+    pub(super) fn checking_kiro() -> Self {
+        Self {
+            app: None,
+            crew: None,
+            cli: None,
+            used: None,
+            app_applicable: true,
+            crew_applicable: true,
             cli_applicable: true,
             checking: true,
         }
@@ -69,7 +92,7 @@ pub(super) fn provider_install_status(
     configured_folder: &str,
 ) -> ProviderInstallStatus {
     if provider == ProviderKind::Kiro {
-        return provider_install_status_kiro(configured_folder, "");
+        return provider_install_status_kiro(configured_folder, "", "");
     }
     let configured_folder = (!configured_folder.trim().is_empty())
         .then(|| std::path::Path::new(configured_folder.trim()));
@@ -147,9 +170,11 @@ pub(super) fn provider_install_status(
     };
     ProviderInstallStatus {
         app,
+        crew: None,
         cli,
         used,
         app_applicable: provider != ProviderKind::Grok,
+        crew_applicable: false,
         cli_applicable: matches!(
             provider,
             ProviderKind::Codex
@@ -163,27 +188,35 @@ pub(super) fn provider_install_status(
 
 pub(super) fn provider_install_status_kiro(
     configured_app_folder: &str,
+    configured_crew_folder: &str,
     configured_cli_folder: &str,
 ) -> ProviderInstallStatus {
     let configured_app_folder = (!configured_app_folder.trim().is_empty())
         .then(|| std::path::Path::new(configured_app_folder.trim()));
+    let configured_crew_folder = (!configured_crew_folder.trim().is_empty())
+        .then(|| std::path::Path::new(configured_crew_folder.trim()));
     let configured_cli_folder = (!configured_cli_folder.trim().is_empty())
         .then(|| std::path::Path::new(configured_cli_folder.trim()));
     let app_path = crate::kiro::ide_source_path(configured_app_folder);
+    let crew_path = crate::kiro::crew_installation_path(configured_crew_folder);
     let cli_path = crate::kiro::cli_path(configured_cli_folder);
-    let app_ready = crate::kiro::app_source_is_ready(configured_app_folder);
-    let cli_ready = crate::kiro::cli_source_is_ready(configured_cli_folder);
+    let selected = crate::kiro::selected_source(
+        configured_app_folder,
+        configured_crew_folder,
+        configured_cli_folder,
+    );
     ProviderInstallStatus {
         app: app_path.as_deref().map(display_fs_path),
+        crew: crew_path.as_deref().map(display_fs_path),
         cli: cli_path.as_deref().map(display_fs_path),
-        used: if app_ready {
-            Some(ProviderInstallSource::App)
-        } else if cli_ready {
-            Some(ProviderInstallSource::Cli)
-        } else {
-            None
+        used: match selected {
+            Some(crate::kiro::KiroSource::Ide) => Some(ProviderInstallSource::App),
+            Some(crate::kiro::KiroSource::Crew) => Some(ProviderInstallSource::Crew),
+            Some(crate::kiro::KiroSource::Cli) => Some(ProviderInstallSource::Cli),
+            None => None,
         },
         app_applicable: true,
+        crew_applicable: true,
         cli_applicable: true,
         checking: false,
     }
@@ -688,6 +721,7 @@ fn persist_opencode_manual_key(
 enum ProviderPathTarget {
     Provider(ProviderKind),
     KiroApp,
+    KiroCrew,
     KiroCli,
 }
 
@@ -695,7 +729,7 @@ impl ProviderPathTarget {
     fn display_name(self) -> &'static str {
         match self {
             Self::Provider(provider) => provider.display_name(),
-            Self::KiroApp | Self::KiroCli => "Kiro",
+            Self::KiroApp | Self::KiroCrew | Self::KiroCli => "Kiro",
         }
     }
 }
@@ -729,6 +763,7 @@ fn path_save_generation(target: ProviderPathTarget) -> &'static AtomicU64 {
             | ProviderKind::Kiro => unreachable!("provider has no generic custom path"),
         },
         ProviderPathTarget::KiroApp => &KIRO_APP_PATH_SAVE_GEN,
+        ProviderPathTarget::KiroCrew => &KIRO_CREW_PATH_SAVE_GEN,
         ProviderPathTarget::KiroCli => &KIRO_CLI_PATH_SAVE_GEN,
     }
 }
@@ -740,6 +775,7 @@ fn assign_provider_folder(
 ) {
     match target {
         ProviderPathTarget::KiroApp => settings.kiro_path = folder,
+        ProviderPathTarget::KiroCrew => settings.kiro_crew_path = folder,
         ProviderPathTarget::KiroCli => settings.kiro_cli_path = folder,
         ProviderPathTarget::Provider(provider) => match provider {
             ProviderKind::Codex => settings.codex_path = folder,
@@ -881,21 +917,23 @@ fn provider_description(provider: ProviderKind) -> &'static str {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
         ProviderKind::Kiro => {
-            "Fetches Kiro's live monthly credits, preferring the IDE when installed and falling back to the CLI."
+            "Fetches Kiro's live monthly credits with its shared sign-in; recognizes IDE, Crew, and CLI installs."
         }
     }
 }
 
-/// Display names for the app and CLI sources a provider can be read from.
-fn source_labels(provider: ProviderKind) -> (&'static str, &'static str) {
+/// Display names for the app, Crew app, and CLI sources a provider can read from.
+fn source_labels(provider: ProviderKind) -> (&'static str, &'static str, &'static str) {
     match provider {
-        ProviderKind::Codex => ("Codex desktop app", "Codex CLI"),
-        ProviderKind::Claude => ("Claude desktop app", "Claude Code CLI"),
-        ProviderKind::Cursor => ("Cursor app", ""),
-        ProviderKind::Antigravity => ("Antigravity app", "agy CLI"),
-        ProviderKind::Grok => ("", "Grok CLI"),
-        ProviderKind::Kiro => ("Kiro IDE", "Kiro CLI"),
-        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => ("", ""),
+        ProviderKind::Codex => ("Codex desktop app", "", "Codex CLI"),
+        ProviderKind::Claude => ("Claude desktop app", "", "Claude Code CLI"),
+        ProviderKind::Cursor => ("Cursor app", "", ""),
+        ProviderKind::Antigravity => ("Antigravity app", "", "agy CLI"),
+        ProviderKind::Grok => ("", "", "Grok CLI"),
+        ProviderKind::Kiro => ("Kiro IDE", "Kiro Crew", "Kiro CLI"),
+        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => {
+            ("", "", "")
+        }
     }
 }
 
@@ -974,6 +1012,15 @@ fn folder_configs<'a>(
                 placeholder: r"C:\Users\you\AppData\Local\Programs\Kiro",
             },
             FolderConfig {
+                target: ProviderPathTarget::KiroCrew,
+                key: "kiro-crew-app",
+                path: ctx.kiro_crew_path,
+                setter: ctx.set_kiro_crew_path.clone(),
+                label: "Custom Kiro Crew app path",
+                description: "Folder containing KiroCrew.exe, or the executable itself. Leave empty to detect per-user and all-users installs automatically.",
+                placeholder: r"C:\Users\you\AppData\Local\Programs\KiroCrew",
+            },
+            FolderConfig {
                 target: ProviderPathTarget::KiroCli,
                 key: "kiro-cli",
                 path: ctx.kiro_cli_path,
@@ -1039,9 +1086,10 @@ fn provider_status_line(
                 }
             }
             _ => {
-                let (app, cli) = source_labels(provider);
+                let (app, crew, cli) = source_labels(provider);
                 match status.used {
                     Some(ProviderInstallSource::Cli) => format!("Reading {cli}"),
+                    Some(ProviderInstallSource::Crew) => format!("Reading {crew}"),
                     _ => format!("Reading {app}"),
                 }
             }
@@ -1237,7 +1285,9 @@ pub(super) fn provider_page_content(
 }
 
 fn checking_card(status: &ProviderInstallStatus) -> Element {
-    let message = if status.app_applicable && status.cli_applicable {
+    let message = if status.crew_applicable {
+        "Checking Kiro IDE, Kiro Crew, and CLI…"
+    } else if status.app_applicable && status.cli_applicable {
         "Checking installed app and CLI…"
     } else if status.cli_applicable {
         "Checking CLI…"
@@ -1260,7 +1310,7 @@ fn install_sections(
     if status.checking {
         out.push(checking_card(status).with_key("sources-checking"));
     } else {
-        let (app_label, cli_label) = source_labels(provider);
+        let (app_label, crew_label, cli_label) = source_labels(provider);
         if status.app_applicable {
             out.push(
                 source_row(
@@ -1273,6 +1323,20 @@ fn install_sections(
                     ctx,
                 )
                 .with_key("source-app"),
+            );
+        }
+        if status.crew_applicable {
+            out.push(
+                source_row(
+                    provider,
+                    "desktop",
+                    crew_label,
+                    status.crew.as_deref(),
+                    status.used == Some(ProviderInstallSource::Crew),
+                    false,
+                    ctx,
+                )
+                .with_key("source-crew"),
             );
         }
         if status.cli_applicable {
