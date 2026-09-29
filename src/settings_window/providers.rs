@@ -837,7 +837,7 @@ fn provider_description(provider: ProviderKind) -> &'static str {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
         ProviderKind::Kiro => {
-            "Reads Kiro's monthly credits and uses its local plan/account labels when available."
+            "Fetches Kiro's live monthly credits and falls back to its local usage cache."
         }
     }
 }

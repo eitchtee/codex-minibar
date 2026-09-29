@@ -67,10 +67,12 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
 
 The app does not copy provider credentials into its ordinary settings file. It talks to the local
 Codex app server, reads Claude Code's existing local OAuth session, reads OpenCode's local
-configuration/history, reuses the official Antigravity or Grok CLI sign-in, reads Kiro's cached
-monthly-credit snapshot from its local state database in read-only mode, or requests OpenRouter key
-usage. Plan and account labels come from Kiro's local usage log when present; Minibar does not open
-Kiro auth-token files. Kiro subscription credits stay separate from API-equivalent Total Spend.
+configuration/history, reuses the official Antigravity or Grok CLI sign-in, requests live Kiro
+monthly credits with Kiro's existing access token, or requests OpenRouter key usage. The Kiro token
+is read-only and never refreshed or written; if the live request is unavailable, Minibar falls back
+to Kiro's local state database. The Kiro endpoint also supplies plan and account labels, with its
+local usage log as a fallback. The endpoint is currently undocumented by Kiro, so the local fallback
+also covers service changes. Kiro subscription credits stay separate from API-equivalent Total Spend.
 Optional OpenCode and OpenRouter manual API keys are protected with Windows user-scoped DPAPI
 storage. The app stores its own settings and usage history in your Windows user profile.
 

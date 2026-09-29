@@ -229,14 +229,13 @@ pub fn accent_element(name: &'static str, size: f64) -> Element {
     let mut host = swap_chain_panel().width(size).height(size);
     host.mounted = Some(Callback::new(move |native: Option<_>| {
         if let Some(native) = native
-            && let Err(error) =
-                crate::acrylic::install_accent_icon_into(
-                    native,
-                    &icon.path,
-                    icon.canvas_width,
-                    icon.canvas_height,
-                    icon.even_odd,
-                )
+            && let Err(error) = crate::acrylic::install_accent_icon_into(
+                native,
+                &icon.path,
+                icon.canvas_width,
+                icon.canvas_height,
+                icon.even_odd,
+            )
         {
             eprintln!("Could not install accent filled icon: {error:?}");
         }
@@ -256,14 +255,13 @@ pub fn info_bar_error_element(name: &'static str, size: f64) -> Element {
     let mut host = swap_chain_panel().width(size).height(size);
     host.mounted = Some(Callback::new(move |native: Option<_>| {
         if let Some(native) = native
-            && let Err(error) =
-                crate::acrylic::install_info_bar_error_icon_into(
-                    native,
-                    &icon.path,
-                    icon.canvas_width,
-                    icon.canvas_height,
-                    icon.even_odd,
-                )
+            && let Err(error) = crate::acrylic::install_info_bar_error_icon_into(
+                native,
+                &icon.path,
+                icon.canvas_width,
+                icon.canvas_height,
+                icon.even_odd,
+            )
         {
             eprintln!("Could not install InfoBar error icon: {error:?}");
         }

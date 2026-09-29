@@ -669,7 +669,9 @@ fn banked_resets_section_is_available_when_data_exists() {
         ..Default::default()
     });
 
-    assert!(popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::BankedResets));
+    assert!(
+        popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::BankedResets)
+    );
 }
 
 #[test]

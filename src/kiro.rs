@@ -1,17 +1,15 @@
-//! Reads the subscription-credit snapshot Kiro IDE already stores locally.
-//!
-//! The IDE's `state.vscdb` is opened read-only. Plan and account labels come
-//! from local usage logs when available; Minibar never opens Kiro auth-token
-//! files, calls private endpoints, or writes to Kiro's data.
+//! Reads live subscription credits from Kiro's own usage endpoint, using its
+//! existing access token without refreshing or writing credentials. Kiro's
+//! state database and runtime logs remain read-only fallbacks.
 
+#[cfg(windows)]
+use std::env;
 use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
-#[cfg(windows)]
-use std::env;
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Months, Utc};
@@ -42,6 +40,20 @@ impl KiroClient {
     }
 
     fn read_usage_limits(&self) -> Result<RateLimits> {
+        match read_live_usage_limits() {
+            Ok(limits) => Ok(limits),
+            Err(error) if crate::worker::is_rate_limited_error(&error) => Err(error),
+            Err(live_error) => self
+                .read_cached_usage_limits()
+                .map_err(|cache_error| {
+                    anyhow!(
+                        "Kiro's live quota request failed ({live_error:#}) and its local cache could not be read ({cache_error:#})"
+                    )
+                }),
+        }
+    }
+
+    fn read_cached_usage_limits(&self) -> Result<RateLimits> {
         let path = self
             .state_path
             .as_deref()
@@ -137,13 +149,15 @@ pub struct KiroActivator;
 
 impl Activator for KiroActivator {
     fn activate(&mut self) -> Result<()> {
-        Err(anyhow!("Kiro does not expose a supported session activation command"))
+        Err(anyhow!(
+            "Kiro does not expose a supported session activation command"
+        ))
     }
 }
 
 /// Used for Settings and onboarding readiness without accessing credentials.
 pub fn has_cached_usage() -> bool {
-    KiroClient::new().read_usage_limits().is_ok()
+    KiroClient::new().read_cached_usage_limits().is_ok()
 }
 
 /// Finds the Kiro executable for the Settings source row. If Kiro is installed
@@ -162,7 +176,11 @@ fn installation_path() -> Option<PathBuf> {
         local_app_data
             .into_iter()
             .map(|path| path.join("Programs/Kiro/Kiro.exe"))
-            .chain(program_files.into_iter().map(|path| path.join("Kiro/Kiro.exe")))
+            .chain(
+                program_files
+                    .into_iter()
+                    .map(|path| path.join("Kiro/Kiro.exe")),
+            )
             .chain(
                 program_files_x86
                     .into_iter()
@@ -225,6 +243,282 @@ struct KiroUserInfo {
     user_name: Option<String>,
     username: Option<String>,
     email: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KiroAuthToken {
+    access_token: Option<String>,
+    auth_method: Option<String>,
+    provider: Option<String>,
+    profile_arn: Option<String>,
+    expires_at: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KiroLiveUsageResponse {
+    next_date_reset: Option<Value>,
+    subscription_info: Option<KiroSubscriptionInfo>,
+    #[serde(default)]
+    usage_breakdown_list: Vec<KiroUsageBreakdown>,
+    user_info: Option<KiroUserInfo>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KiroUsageBreakdown {
+    resource_type: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    display_name: Option<String>,
+    display_name_plural: Option<String>,
+    current_usage: Option<Value>,
+    current_usage_with_precision: Option<Value>,
+    usage_limit: Option<Value>,
+    usage_limit_with_precision: Option<Value>,
+    next_date_reset: Option<Value>,
+    reset_date: Option<Value>,
+}
+
+/// Fetches the same monthly quota response Kiro IDE uses itself. The request
+/// only reads Kiro data; credentials are read from its cache and never updated.
+fn read_live_usage_limits() -> Result<RateLimits> {
+    let token = read_kiro_auth_token()?;
+    let profile_arn = token
+        .profile_arn
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow!("Kiro sign-in token has no profile ARN"))?;
+    let region = profile_region(profile_arn)
+        .ok_or_else(|| anyhow!("Kiro sign-in profile has no supported region"))?;
+    let endpoint = usage_endpoint(region)
+        .ok_or_else(|| anyhow!("Kiro usage is not available in region {region}"))?;
+    let encoded_profile = encode_query_component(profile_arn);
+    let url = format!(
+        "{endpoint}/getUsageLimits?origin=AI_EDITOR&profileArn={encoded_profile}&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+    );
+    let access_token = token
+        .access_token
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow!("Kiro sign-in token has no access token"))?;
+    let authorization = format!("Bearer {access_token}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(10))
+        .build();
+    let mut request = agent
+        .get(&url)
+        .set("Authorization", &authorization)
+        .set("Accept", "application/json")
+        .set(
+            "User-Agent",
+            concat!("Codex Minibar/", env!("CARGO_PKG_VERSION")),
+        );
+    if token.auth_method.as_deref().is_some_and(is_external_idp) {
+        request = request.set("TokenType", "EXTERNAL_IDP");
+    }
+    if token
+        .provider
+        .as_deref()
+        .is_some_and(|provider| provider.eq_ignore_ascii_case("internal"))
+    {
+        request = request.set("redirect-for-internal", "true");
+    }
+
+    let response = match request.call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(429, _)) => {
+            return Err(crate::worker::rate_limit_error(
+                "Kiro usage request was rate limited (HTTP 429).",
+            ));
+        }
+        Err(ureq::Error::Status(401 | 403, _)) => {
+            return Err(anyhow!(
+                "Kiro rejected its saved access token; open Kiro to refresh the sign-in"
+            ));
+        }
+        Err(ureq::Error::Status(status, _)) => {
+            return Err(anyhow!("Kiro usage request failed with HTTP {status}"));
+        }
+        Err(ureq::Error::Transport(_)) => {
+            return Err(anyhow!("Kiro usage endpoint is unreachable"));
+        }
+    };
+    let raw = response
+        .into_string()
+        .context("could not read Kiro usage response")?;
+    let response: KiroLiveUsageResponse =
+        serde_json::from_str(&raw).context("Kiro returned an unsupported usage response")?;
+    limits_from_live_usage(response)
+}
+
+fn limits_from_live_usage(response: KiroLiveUsageResponse) -> Result<RateLimits> {
+    let credits = response
+        .usage_breakdown_list
+        .iter()
+        .find(|breakdown| {
+            is_credit_type(
+                breakdown.resource_type.as_deref(),
+                breakdown.kind.as_deref(),
+                breakdown.display_name.as_deref(),
+                breakdown.display_name_plural.as_deref(),
+            )
+        })
+        .ok_or_else(|| anyhow!("Kiro usage response has no monthly credit breakdown"))?;
+    let used = credits
+        .current_usage_with_precision
+        .as_ref()
+        .and_then(numeric_value)
+        .or_else(|| credits.current_usage.as_ref().and_then(numeric_value))
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .ok_or_else(|| anyhow!("Kiro usage response has no current credit usage"))?;
+    let limit = credits
+        .usage_limit_with_precision
+        .as_ref()
+        .and_then(numeric_value)
+        .or_else(|| credits.usage_limit.as_ref().and_then(numeric_value))
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or_else(|| anyhow!("Kiro usage response has no monthly credit limit"))?;
+    let resets_at = credits
+        .next_date_reset
+        .as_ref()
+        .or(credits.reset_date.as_ref())
+        .or(response.next_date_reset.as_ref())
+        .and_then(timestamp_value);
+    let mut metadata = KiroRuntimeMetadata {
+        user_id: response
+            .user_info
+            .as_ref()
+            .and_then(|user| nonempty(user.user_id.as_deref())),
+        plan_name: response
+            .subscription_info
+            .as_ref()
+            .and_then(display_plan_name),
+        account_name: response.user_info.as_ref().and_then(account_display_name),
+    };
+    let local_fallback =
+        if resets_at.is_none() || metadata.plan_name.is_none() || metadata.account_name.is_none() {
+            KiroClient::new().read_cached_usage_limits().ok()
+        } else {
+            None
+        };
+    if let Some(local) = &local_fallback {
+        metadata.plan_name = metadata.plan_name.or_else(|| local.plan_type.clone());
+        metadata.account_name = metadata.account_name.or_else(|| local.account_name.clone());
+    }
+    let resets_at = resets_at.or_else(|| {
+        local_fallback
+            .as_ref()
+            .and_then(|local| local.secondary.resets_at.as_ref().cloned())
+    });
+    let used_percent = ((used / limit) * 100.0).round().clamp(0.0, 100.0) as u8;
+    let duration_minutes = resets_at.and_then(month_duration_minutes);
+
+    Ok(RateLimits {
+        sampled_at: Utc::now(),
+        account_name: metadata.account_name,
+        plan_type: metadata.plan_name,
+        secondary: LimitWindow {
+            used_percent: Some(used_percent),
+            resets_at,
+            duration_minutes,
+        },
+        ..RateLimits::default()
+    })
+}
+
+fn read_kiro_auth_token() -> Result<KiroAuthToken> {
+    let path = directories::BaseDirs::new()
+        .map(|base| base.home_dir().join(".aws/sso/cache/kiro-auth-token.json"))
+        .ok_or_else(|| anyhow!("could not locate the Kiro sign-in token"))?;
+    let metadata = fs::symlink_metadata(&path).context("Kiro sign-in token is unavailable")?;
+    if metadata.file_type().is_symlink() {
+        return Err(anyhow!("Kiro sign-in token must not be a symbolic link"));
+    }
+    let raw = fs::read(&path).context("could not read the Kiro sign-in token")?;
+    let token: KiroAuthToken =
+        serde_json::from_slice(&raw).context("Kiro sign-in token has an unsupported format")?;
+    if token
+        .expires_at
+        .as_ref()
+        .and_then(timestamp_value)
+        .is_some_and(|expires_at| expires_at <= Utc::now() + chrono::Duration::seconds(30))
+    {
+        return Err(anyhow!(
+            "Kiro's saved access token expired; open Kiro to refresh the sign-in"
+        ));
+    }
+    Ok(token)
+}
+
+fn profile_region(profile_arn: &str) -> Option<&str> {
+    let fields: Vec<_> = profile_arn.split(':').collect();
+    (fields.len() >= 6 && fields[0] == "arn" && fields[2] == "codewhisperer").then_some(fields[3])
+}
+
+/// These trusted q-service endpoints mirror the region table in the installed
+/// Kiro extension. Unknown/custom regions fall back to the IDE's local cache.
+fn usage_endpoint(region: &str) -> Option<&'static str> {
+    match region {
+        "us-east-1" => Some("https://q.us-east-1.amazonaws.com"),
+        "eu-central-1" => Some("https://q.eu-central-1.amazonaws.com"),
+        "us-gov-east-1" => Some("https://q-fips.us-gov-east-1.amazonaws.com"),
+        "us-gov-west-1" => Some("https://q-fips.us-gov-west-1.amazonaws.com"),
+        "us-iso-east-1" => Some("https://q.us-iso-east-1.c2s.ic.gov"),
+        "us-isob-east-1" => Some("https://q.us-isob-east-1.sc2s.sgov.gov"),
+        "us-isof-south-1" => Some("https://q.us-isof-south-1.csp.hci.ic.gov"),
+        "us-isof-east-1" => Some("https://q.us-isof-east-1.csp.hci.ic.gov"),
+        _ => None,
+    }
+}
+
+fn is_external_idp(auth_method: &str) -> bool {
+    auth_method.eq_ignore_ascii_case("external_idp")
+        || auth_method.eq_ignore_ascii_case("externalidp")
+}
+
+fn encode_query_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
+fn timestamp_value(value: &Value) -> Option<DateTime<Utc>> {
+    if let Some(value) = value.as_str() {
+        if let Ok(value) = DateTime::parse_from_rfc3339(value) {
+            return Some(value.with_timezone(&Utc));
+        }
+        return value.parse::<f64>().ok().and_then(unix_timestamp);
+    }
+    value
+        .as_i64()
+        .map(|timestamp| timestamp as f64)
+        .or_else(|| value.as_f64())
+        .and_then(unix_timestamp)
+}
+
+fn unix_timestamp(timestamp: f64) -> Option<DateTime<Utc>> {
+    if !timestamp.is_finite() {
+        return None;
+    }
+    let milliseconds = if timestamp.abs() >= 100_000_000_000.0 {
+        timestamp
+    } else {
+        timestamp * 1_000.0
+    };
+    if milliseconds < i64::MIN as f64 || milliseconds > i64::MAX as f64 {
+        return None;
+    }
+    DateTime::from_timestamp_millis(milliseconds.round() as i64)
 }
 
 /// Kiro logs the quota response locally. Read only its plan and identity labels;
@@ -329,7 +623,9 @@ fn latest_usage_metadata_in_log(path: &Path) -> Option<KiroRuntimeMetadata> {
             .and_then(display_plan_name);
         let user = output.user_info;
         let candidate = KiroRuntimeMetadata {
-            user_id: user.as_ref().and_then(|user| nonempty(user.user_id.as_deref())),
+            user_id: user
+                .as_ref()
+                .and_then(|user| nonempty(user.user_id.as_deref())),
             plan_name,
             account_name: user.as_ref().and_then(account_display_name),
         };
@@ -397,7 +693,12 @@ fn normalize_plan_name(value: &str) -> Option<String> {
 }
 
 fn known_plan_from_type(value: &str) -> Option<String> {
-    match value.trim().to_ascii_lowercase().replace([' ', '_', '-'], "").as_str() {
+    match value
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '_', '-'], "")
+        .as_str()
+    {
         "free" => Some("Free".into()),
         "pro" => Some("Pro".into()),
         "proplus" => Some("Pro+".into()),
@@ -419,9 +720,7 @@ fn account_display_name(user: &KiroUserInfo) -> Option<String> {
 }
 
 fn first_nonempty<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
-    values
-        .into_iter()
-        .find_map(nonempty)
+    values.into_iter().find_map(nonempty)
 }
 
 fn nonempty(value: Option<&str>) -> Option<String> {
@@ -446,18 +745,33 @@ fn is_redaction_marker(value: &str) -> bool {
 }
 
 fn is_credit_breakdown(value: &Value) -> bool {
-    let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
-    let display_name = value
-        .get("displayName")
-        .or_else(|| value.get("displayNamePlural"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    kind.eq_ignore_ascii_case("CREDIT")
-        || display_name.to_ascii_lowercase().contains("credit")
+    is_credit_type(
+        value.get("resourceType").and_then(Value::as_str),
+        value.get("type").and_then(Value::as_str),
+        value.get("displayName").and_then(Value::as_str),
+        value.get("displayNamePlural").and_then(Value::as_str),
+    )
+}
+
+fn is_credit_type(
+    resource_type: Option<&str>,
+    kind: Option<&str>,
+    display_name: Option<&str>,
+    display_name_plural: Option<&str>,
+) -> bool {
+    let kind = resource_type.or(kind).unwrap_or_default();
+    let display_name = display_name.or(display_name_plural).unwrap_or_default();
+    kind.eq_ignore_ascii_case("CREDIT") || display_name.to_ascii_lowercase().contains("credit")
 }
 
 fn numeric_field(value: &Value, name: &str) -> Option<f64> {
-    value.get(name).and_then(Value::as_f64)
+    value.get(name).and_then(numeric_value)
+}
+
+fn numeric_value(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
 }
 
 fn month_duration_minutes(resets_at: DateTime<Utc>) -> Option<u32> {
