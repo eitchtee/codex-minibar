@@ -389,11 +389,7 @@ pub(super) fn popup_sections(
     if has_error {
         sections.push(PopupSection::Error);
     }
-    if provider == ProviderKind::Kiro {
-        if !limits.secondary.is_empty() {
-            sections.push(PopupSection::Monthly);
-        }
-    } else if limits.is_free_plan() {
+    if provider == ProviderKind::Kiro || limits.is_free_plan() {
         if !limits.secondary.is_empty() {
             sections.push(PopupSection::Monthly);
         }

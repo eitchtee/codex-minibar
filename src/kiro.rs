@@ -1021,7 +1021,7 @@ fn latest_usage_metadata_in_log(path: &Path) -> Option<KiroRuntimeMetadata> {
     let mut latest = None;
     for line in BufReader::new(file)
         .lines()
-        .filter_map(std::result::Result::ok)
+        .map_while(std::result::Result::ok)
     {
         if !line.contains(USAGE_COMMAND) || !line.contains("subscriptionInfo") {
             continue;
@@ -1182,9 +1182,14 @@ fn is_credit_type(
     display_name: Option<&str>,
     display_name_plural: Option<&str>,
 ) -> bool {
-    let kind = resource_type.or(kind).unwrap_or_default();
-    let display_name = display_name.or(display_name_plural).unwrap_or_default();
-    kind.eq_ignore_ascii_case("CREDIT") || display_name.to_ascii_lowercase().contains("credit")
+    [resource_type, kind]
+        .into_iter()
+        .flatten()
+        .any(|value| value.eq_ignore_ascii_case("CREDIT"))
+        || [display_name, display_name_plural]
+            .into_iter()
+            .flatten()
+            .any(|value| value.to_ascii_lowercase().contains("credit"))
 }
 
 fn numeric_field(value: &Value, name: &str) -> Option<f64> {
