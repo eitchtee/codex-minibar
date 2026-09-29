@@ -489,6 +489,7 @@ fn popup_section_all_off_drops_provider_from_home_tab() {
         false,
         false,
         false,
+        false,
     );
     assert!(!widgets.contains(&PopupWidgetKind::Codex));
     let limits = plan_limits("plus");
@@ -898,6 +899,7 @@ fn every_provider_membership_has_the_expected_tab_order() {
             openrouter,
             antigravity,
             grok,
+            false,
         );
         let providers = provider_order_from_popup(&default_order);
 
@@ -939,9 +941,10 @@ fn every_provider_membership_has_the_expected_tab_order() {
         PopupWidgetKind::OpenRouter,
         PopupWidgetKind::Antigravity,
         PopupWidgetKind::Grok,
+        PopupWidgetKind::Kiro,
     ];
     let views = enabled_popup_views(
-        &reversed, true, true, true, true, true, true, true, true, true,
+        &reversed, true, true, true, true, true, true, true, true, true, true,
     );
     assert_eq!(
         views,
@@ -956,6 +959,7 @@ fn every_provider_membership_has_the_expected_tab_order() {
             PopupView::OpenRouter,
             PopupView::Antigravity,
             PopupView::Grok,
+            PopupView::Kiro,
         ]
     );
 }
@@ -966,6 +970,7 @@ fn usage_stats_toggle_removes_only_the_usage_view() {
         &PopupWidgetKind::default_order(),
         false,
         true,
+        false,
         false,
         false,
         false,

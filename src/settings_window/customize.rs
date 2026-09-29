@@ -46,6 +46,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let openrouter_enabled = ctx.openrouter_enabled;
     let antigravity_enabled = ctx.antigravity_enabled;
     let grok_enabled = ctx.grok_enabled;
+    let kiro_enabled = ctx.kiro_enabled;
     let popup_order = ctx.popup_order;
     let use_colored_provider_icons = ctx.use_colored_provider_icons;
     let show_used_percentage = ctx.show_used_percentage;
@@ -88,6 +89,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     );
     let mut rows = vec![
         settings_section_heading("Tabs").with_key("customize-tabs-heading"),

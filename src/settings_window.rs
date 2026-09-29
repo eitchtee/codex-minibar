@@ -369,6 +369,8 @@ pub fn render(
         cx.use_state(settings.providers.is_enabled(ProviderKind::Antigravity));
     let (grok_enabled, set_grok_enabled) =
         cx.use_state(settings.providers.is_enabled(ProviderKind::Grok));
+    let (kiro_enabled, set_kiro_enabled) =
+        cx.use_state(settings.providers.is_enabled(ProviderKind::Kiro));
     let (openrouter_accounts, set_openrouter_accounts) =
         cx.use_state(crate::openrouter::accounts_for_settings(&settings));
     let (openrouter_snapshot, set_openrouter_snapshot) = cx.use_state(cached_openrouter_snapshot());
@@ -429,6 +431,8 @@ pub fn render(
         cx.use_async_state(ProviderInstallStatus::checking());
     let (grok_install_status, set_grok_install_status) =
         cx.use_async_state(ProviderInstallStatus::checking_cli());
+    let (kiro_install_status, set_kiro_install_status) =
+        cx.use_async_state(ProviderInstallStatus::checking_app());
     let last_status_paths = cx.use_ref(None::<[String; 5]>);
     let status_codex_path = codex_path.clone();
     let status_claude_path = claude_path.clone();
@@ -467,6 +471,7 @@ pub fn render(
                 set_openrouter_install_status.call(ProviderInstallStatus::checking_app());
                 set_antigravity_install_status.call(ProviderInstallStatus::checking());
                 set_grok_install_status.call(ProviderInstallStatus::checking_cli());
+                set_kiro_install_status.call(ProviderInstallStatus::checking_app());
             }
             let codex_status = set_codex_install_status.clone();
             let claude_status = set_claude_install_status.clone();
@@ -476,6 +481,7 @@ pub fn render(
             let openrouter_status = set_openrouter_install_status.clone();
             let antigravity_status = set_antigravity_install_status.clone();
             let grok_status = set_grok_install_status.clone();
+            let kiro_status = set_kiro_install_status.clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_millis(250));
                 if PROVIDER_STATUS_GEN.load(Ordering::Relaxed) != generation {
@@ -490,6 +496,7 @@ pub fn render(
                 let antigravity =
                     provider_install_status(ProviderKind::Antigravity, &status_antigravity_path);
                 let grok = provider_install_status(ProviderKind::Grok, &status_grok_path);
+                let kiro = provider_install_status(ProviderKind::Kiro, "");
                 if PROVIDER_STATUS_GEN.load(Ordering::Relaxed) == generation {
                     codex_status.call(codex);
                     claude_status.call(claude);
@@ -499,6 +506,7 @@ pub fn render(
                     openrouter_status.call(openrouter);
                     antigravity_status.call(antigravity);
                     grok_status.call(grok);
+                    kiro_status.call(kiro);
                 }
             });
         },
@@ -526,6 +534,7 @@ pub fn render(
                 ProviderKind::OpenRouter => openrouter_enabled,
                 ProviderKind::Antigravity => antigravity_enabled,
                 ProviderKind::Grok => grok_enabled,
+                ProviderKind::Kiro => kiro_enabled,
             },
             |provider| {
                 provider_readiness(match provider {
@@ -537,6 +546,7 @@ pub fn render(
                     ProviderKind::OpenRouter => &openrouter_install_status,
                     ProviderKind::Antigravity => &antigravity_install_status,
                     ProviderKind::Grok => &grok_install_status,
+                    ProviderKind::Kiro => &kiro_install_status,
                 })
             },
             openrouter_accounts.len(),
@@ -586,6 +596,7 @@ pub fn render(
                                     ProviderKind::OpenRouter => openrouter_enabled,
                                     ProviderKind::Antigravity => antigravity_enabled,
                                     ProviderKind::Grok => grok_enabled,
+                                    ProviderKind::Kiro => kiro_enabled,
                                 });
                             let restore = if root_selected != Tab::Providers {
                                 root_selected
@@ -766,6 +777,7 @@ pub fn render(
             openrouter_enabled: set_openrouter_enabled.clone(),
             antigravity_enabled: set_antigravity_enabled.clone(),
             grok_enabled: set_grok_enabled.clone(),
+            kiro_enabled: set_kiro_enabled.clone(),
             openrouter_accounts: set_openrouter_accounts.clone(),
             codex_path: set_codex_path.clone(),
             claude_path: set_claude_path.clone(),
@@ -824,6 +836,7 @@ pub fn render(
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
         codex_path: &codex_path,
         claude_path: &claude_path,
         cursor_path: &cursor_path,
@@ -837,6 +850,7 @@ pub fn render(
         openrouter_install_status: &openrouter_install_status,
         antigravity_install_status: &antigravity_install_status,
         grok_install_status: &grok_install_status,
+        kiro_install_status: &kiro_install_status,
         openrouter_accounts: &openrouter_accounts,
         openrouter_snapshot: &openrouter_snapshot,
         expanded_provider_cards: &expanded_provider_cards,
@@ -904,6 +918,7 @@ pub fn render(
         set_openrouter_enabled: set_openrouter_enabled.clone(),
         set_antigravity_enabled: set_antigravity_enabled.clone(),
         set_grok_enabled: set_grok_enabled.clone(),
+        set_kiro_enabled: set_kiro_enabled.clone(),
         set_openrouter_accounts: set_openrouter_accounts.clone(),
         set_expanded_provider_cards: set_expanded_provider_cards.clone(),
         set_provider_dialog: set_provider_dialog.clone(),
@@ -1103,6 +1118,7 @@ pub fn render(
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     );
     let window_body: Element = if let Some(editing) = editing_tray_indicator.as_ref() {
         let overlay = tray_indicator_edit_overlay(

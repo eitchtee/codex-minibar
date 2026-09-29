@@ -19,6 +19,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let set_openrouter_enabled = ctx.set_openrouter_enabled.clone();
     let set_antigravity_enabled = ctx.set_antigravity_enabled.clone();
     let set_grok_enabled = ctx.set_grok_enabled.clone();
+    let set_kiro_enabled = ctx.set_kiro_enabled.clone();
     let set_openrouter_accounts = ctx.set_openrouter_accounts.clone();
     let set_codex_path = ctx.set_codex_path.clone();
     let set_claude_path = ctx.set_claude_path.clone();
@@ -82,6 +83,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled: set_openrouter_enabled,
         antigravity_enabled: set_antigravity_enabled,
         grok_enabled: set_grok_enabled,
+        kiro_enabled: set_kiro_enabled,
         openrouter_accounts: set_openrouter_accounts,
         codex_path: set_codex_path,
         claude_path: set_claude_path,

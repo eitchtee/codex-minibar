@@ -109,6 +109,7 @@ pub(super) fn provider_cards(
         ProviderKind::OpenRouter => ("Spending", "Spending", "Spending"),
         ProviderKind::Antigravity => ("Gemini", "Gemini", "Claude + GPT"),
         ProviderKind::Grok => ("Credits", "Credits", "Credits"),
+        ProviderKind::Kiro => ("Credits", "Credits", "Credits"),
         _ => ("Monthly", "5h Session", "Weekly"),
     };
     let mut trailing: Vec<Element> = Vec::new();

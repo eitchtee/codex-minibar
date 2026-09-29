@@ -629,6 +629,7 @@ pub enum ProviderKind {
     OpenRouter,
     Antigravity,
     Grok,
+    Kiro,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -751,7 +752,7 @@ fn new_openrouter_id(prefix: &str) -> String {
 }
 
 impl ProviderKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Codex,
         Self::Claude,
         Self::Cursor,
@@ -760,6 +761,7 @@ impl ProviderKind {
         Self::OpenRouter,
         Self::Antigravity,
         Self::Grok,
+        Self::Kiro,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -772,6 +774,7 @@ impl ProviderKind {
             Self::OpenRouter => "openrouter",
             Self::Antigravity => "antigravity",
             Self::Grok => "grok",
+            Self::Kiro => "kiro",
         }
     }
 
@@ -785,6 +788,7 @@ impl ProviderKind {
             "openrouter" => Some(Self::OpenRouter),
             "antigravity" => Some(Self::Antigravity),
             "grok" => Some(Self::Grok),
+            "kiro" => Some(Self::Kiro),
             _ => None,
         }
     }
@@ -799,6 +803,7 @@ impl ProviderKind {
             Self::OpenRouter => "OpenRouter",
             Self::Antigravity => "Antigravity",
             Self::Grok => "Grok",
+            Self::Kiro => "Kiro",
         }
     }
 
@@ -1182,10 +1187,11 @@ pub enum PopupWidgetKind {
     OpenRouter,
     Antigravity,
     Grok,
+    Kiro,
 }
 
 impl PopupWidgetKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::TotalSpend,
         Self::Codex,
         Self::Claude,
@@ -1195,6 +1201,7 @@ impl PopupWidgetKind {
         Self::OpenRouter,
         Self::Antigravity,
         Self::Grok,
+        Self::Kiro,
     ];
 
     pub fn default_order() -> Vec<Self> {
@@ -1212,6 +1219,7 @@ impl PopupWidgetKind {
             Self::OpenRouter => "openrouter",
             Self::Antigravity => "antigravity",
             Self::Grok => "grok",
+            Self::Kiro => "kiro",
         }
     }
 
@@ -1226,6 +1234,7 @@ impl PopupWidgetKind {
             Self::OpenRouter => Some(ProviderKind::OpenRouter),
             Self::Antigravity => Some(ProviderKind::Antigravity),
             Self::Grok => Some(ProviderKind::Grok),
+            Self::Kiro => Some(ProviderKind::Kiro),
         }
     }
 
@@ -1239,6 +1248,7 @@ impl PopupWidgetKind {
             ProviderKind::OpenRouter => Self::OpenRouter,
             ProviderKind::Antigravity => Self::Antigravity,
             ProviderKind::Grok => Self::Grok,
+            ProviderKind::Kiro => Self::Kiro,
         }
     }
 }
@@ -3665,6 +3675,7 @@ enabled = ["codex", "claude"]
                 PopupWidgetKind::OpenRouter,
                 PopupWidgetKind::Antigravity,
                 PopupWidgetKind::Grok,
+                PopupWidgetKind::Kiro,
             ]
         );
         assert!(settings.move_popup_widget(

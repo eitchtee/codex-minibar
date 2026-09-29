@@ -222,7 +222,8 @@ impl ModelData {
         let page = page.min(self.pages(bucket.first).saturating_sub(1));
         let icon = crate::icons::geom(crate::provider_registry::icon(provider));
         let icon_path = xml(icon.path);
-        let canvas = icon.canvas;
+        let canvas_width = icon.canvas_width;
+        let canvas_height = icon.canvas_height;
         let icon_color = xaml_color(combined_usage_color(provider, scheme));
         let mut rows = String::new();
         for (name, usage) in all.iter().skip(page * PAGE_SIZE).take(PAGE_SIZE) {
@@ -234,7 +235,7 @@ impl ModelData {
                 format_token_count(usage.total_tokens())
             };
             let amount = xml(&amount);
-            rows.push_str(&format!(r#"<Grid ColumnSpacing="7"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Border Width="6" Height="6" CornerRadius="3" Background="{brush}" VerticalAlignment="Center"/><Viewbox Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center"><Canvas Width="{canvas}" Height="{canvas}"><Path Data="{icon_path}" Fill="{icon_color}"/></Canvas></Viewbox><TextBlock Grid.Column="2" Text="{name}" FontSize="11" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><TextBlock Grid.Column="3" Text="{amount}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/></Grid>"#));
+            rows.push_str(&format!(r#"<Grid ColumnSpacing="7"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Border Width="6" Height="6" CornerRadius="3" Background="{brush}" VerticalAlignment="Center"/><Viewbox Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center"><Canvas Width="{canvas_width}" Height="{canvas_height}"><Path Data="{icon_path}" Fill="{icon_color}"/></Canvas></Viewbox><TextBlock Grid.Column="2" Text="{name}" FontSize="11" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><TextBlock Grid.Column="3" Text="{amount}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/></Grid>"#));
         }
         if all.is_empty() {
             rows.push_str(r#"<TextBlock Text="No model data" FontSize="11"/>"#);

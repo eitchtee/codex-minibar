@@ -148,17 +148,18 @@ pub fn install_popup_mica_into(mount: windows_core::IInspectable) -> Result<()> 
 /// Host a Phosphor path with a caller-supplied color. The geometry and tint
 /// deliberately stay independent so controls can react to hover/theme state.
 ///
-/// `canvas` is the SVG viewBox size. Wrapping the Path in that Canvas keeps
-/// design padding so edge curves (like power) are not AA-clipped.
+/// The canvas dimensions are the SVG viewBox size. Wrapping the Path in that
+/// Canvas keeps its aspect ratio and design padding so curves are not clipped.
 pub fn install_colored_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
     color: (u8, u8, u8),
 ) -> Result<()> {
     let (r, g, b) = color;
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="#{r:02X}{g:02X}{b:02X}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}"><Path Fill="#{r:02X}{g:02X}{b:02X}" Data="{path}" /></Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
 }
@@ -168,10 +169,11 @@ pub fn install_colored_icon_into(
 pub fn install_accent_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
 ) -> Result<()> {
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="{{ThemeResource AccentFillColorDefaultBrush}}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}"><Path Fill="{{ThemeResource AccentFillColorDefaultBrush}}" Data="{path}" /></Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
 }
@@ -181,10 +183,11 @@ pub fn install_accent_icon_into(
 pub fn install_info_bar_error_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
 ) -> Result<()> {
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="{{ThemeResource InfoBarErrorSeverityIconBackground}}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}"><Path Fill="{{ThemeResource InfoBarErrorSeverityIconBackground}}" Data="{path}" /></Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
 }

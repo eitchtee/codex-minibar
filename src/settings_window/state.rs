@@ -17,6 +17,7 @@ pub(super) struct SettingsWindowState {
     pub(super) openrouter_enabled: SetState<bool>,
     pub(super) antigravity_enabled: SetState<bool>,
     pub(super) grok_enabled: SetState<bool>,
+    pub(super) kiro_enabled: SetState<bool>,
     pub(super) openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
     pub(super) codex_path: SetState<String>,
     pub(super) claude_path: SetState<String>,
@@ -84,6 +85,8 @@ impl SettingsWindowState {
             .call(settings.providers.is_enabled(ProviderKind::Antigravity));
         self.grok_enabled
             .call(settings.providers.is_enabled(ProviderKind::Grok));
+        self.kiro_enabled
+            .call(settings.providers.is_enabled(ProviderKind::Kiro));
         self.openrouter_accounts
             .call(crate::openrouter::accounts_for_settings(settings));
         self.codex_path.call(
@@ -194,6 +197,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) openrouter_enabled: bool,
     pub(super) antigravity_enabled: bool,
     pub(super) grok_enabled: bool,
+    pub(super) kiro_enabled: bool,
     pub(super) codex_path: &'a str,
     pub(super) claude_path: &'a str,
     pub(super) cursor_path: &'a str,
@@ -207,6 +211,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) openrouter_install_status: &'a ProviderInstallStatus,
     pub(super) antigravity_install_status: &'a ProviderInstallStatus,
     pub(super) grok_install_status: &'a ProviderInstallStatus,
+    pub(super) kiro_install_status: &'a ProviderInstallStatus,
     pub(super) openrouter_accounts: &'a [OpenRouterAccount],
     pub(super) openrouter_snapshot: &'a OpenRouterSettingsSnapshot,
     pub(super) expanded_provider_cards: &'a [String],
@@ -274,6 +279,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_openrouter_enabled: SetState<bool>,
     pub(super) set_antigravity_enabled: SetState<bool>,
     pub(super) set_grok_enabled: SetState<bool>,
+    pub(super) set_kiro_enabled: SetState<bool>,
     pub(super) set_openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
     pub(super) set_expanded_provider_cards: AsyncSetState<Vec<String>>,
     pub(super) set_provider_dialog: AsyncSetState<Option<ProviderDialog>>,

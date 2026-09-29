@@ -56,6 +56,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             .providers
             .is_enabled(ProviderKind::Antigravity),
         grok_enabled: state.settings.providers.is_enabled(ProviderKind::Grok),
+        kiro_enabled: state.settings.providers.is_enabled(ProviderKind::Kiro),
         openrouter_credentials_revision: state.settings.openrouter_credentials_revision,
         popup_order: state.settings.popup_order.clone(),
         use_colored_provider_icons: state.settings.use_colored_provider_icons,
@@ -179,6 +180,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             ui.openrouter_enabled,
             ui.antigravity_enabled,
             ui.grok_enabled,
+            ui.kiro_enabled,
             ui.usage_stats_enabled,
             popup_order_key(&ui.popup_order),
         ),
@@ -198,6 +200,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                     PopupView::OpenRouter => ui.openrouter_enabled,
                     PopupView::Antigravity => ui.antigravity_enabled,
                     PopupView::Grok => ui.grok_enabled,
+                    PopupView::Kiro => ui.kiro_enabled,
                 };
                 if !available {
                     pager_dispatch.call(PagerAction::Select(PopupView::Home));
@@ -264,6 +267,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 ui.openrouter_enabled,
                 ui.antigravity_enabled,
                 ui.grok_enabled,
+                ui.kiro_enabled,
             )
         })
         .collect::<Vec<_>>();
@@ -299,6 +303,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
         ui.openrouter_enabled,
         ui.antigravity_enabled,
         ui.grok_enabled,
+        ui.kiro_enabled,
     );
     // Child hover changes rebuild this root. Keep store aggregation outside
     // that hot path: only data, account, time-window or query changes invalidate it.
@@ -393,6 +398,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 ui.openrouter_enabled,
                 ui.antigravity_enabled,
                 ui.grok_enabled,
+                ui.kiro_enabled,
             );
             for (index, widget) in widgets.into_iter().enumerate() {
                 let is_first = index == 0 && !has_preceding_section;
@@ -561,6 +567,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                         ui.openrouter_enabled,
                         ui.antigravity_enabled,
                         ui.grok_enabled,
+                        ui.kiro_enabled,
                     ) || retain_disabled_detail
                 })
                 .into_iter()
@@ -630,6 +637,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             && !ui.openrouter_enabled
             && !ui.antigravity_enabled
             && !ui.grok_enabled
+            && !ui.kiro_enabled
         {
             body.push(
                 InfoBar::new("No providers enabled")
@@ -756,6 +764,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                         PopupView::Antigravity,
                     ),
                     ProviderKind::Grok => ("provider-tab-grok", "Grok", PopupView::Grok),
+                    ProviderKind::Kiro => ("provider-tab-kiro", "Kiro", PopupView::Kiro),
                 };
                 provider_tabs.push(popup_tab_button(
                     tab_id,
@@ -799,6 +808,12 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                     right: 0.0,
                     bottom: 0.0,
                 })
+                .with_layout_animation(
+                    LayoutAnimationConfig::linear(crate::theme::duration(
+                        crate::theme::CONTROL_NORMAL_ANIMATION,
+                    ))
+                    .animate_size(true),
+                )
                 // Provider marks are native swap-chain children. Recreate
                 // the whole selector when membership, order, tint mode, or
                 // theme changes; otherwise WinUI reconciliation can retain
@@ -1004,7 +1019,13 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 bottom: 16.0,
             })
             .horizontal_alignment(HorizontalAlignment::Stretch)
-            .vertical_alignment(VerticalAlignment::Top);
+            .vertical_alignment(VerticalAlignment::Top)
+            .with_layout_animation(
+                LayoutAnimationConfig::linear(crate::theme::duration(
+                    crate::theme::CONTROL_NORMAL_ANIMATION,
+                ))
+                .animate_size(true),
+            );
         if widget_drag.is_some() {
             let set_drag = set_widget_drag.clone();
             let drag = widget_drag.clone();

@@ -136,6 +136,11 @@ pub(super) fn provider_install_status(
                 cli.as_ref().map(|_| ProviderInstallSource::Cli),
             )
         }
+        ProviderKind::Kiro => {
+            let detected = crate::kiro::has_cached_usage();
+            let detail = detected.then(|| "Kiro IDE monthly usage cache".into());
+            (detail, None, detected.then_some(ProviderInstallSource::App))
+        }
     };
     ProviderInstallStatus {
         app,
@@ -675,7 +680,10 @@ fn path_save_generation(provider: ProviderKind) -> Option<&'static AtomicU64> {
         ProviderKind::Cursor => &CURSOR_PATH_SAVE_GEN,
         ProviderKind::Antigravity => &ANTIGRAVITY_PATH_SAVE_GEN,
         ProviderKind::Grok => &GROK_PATH_SAVE_GEN,
-        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => {
+        ProviderKind::OpenCodeZen
+        | ProviderKind::OpenCodeGo
+        | ProviderKind::OpenRouter
+        | ProviderKind::Kiro => {
             return None;
         }
     })
@@ -692,7 +700,10 @@ fn assign_provider_folder(
         ProviderKind::Cursor => settings.cursor_path = folder,
         ProviderKind::Antigravity => settings.antigravity_path = folder,
         ProviderKind::Grok => settings.grok_path = folder,
-        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => {}
+        ProviderKind::OpenCodeZen
+        | ProviderKind::OpenCodeGo
+        | ProviderKind::OpenRouter
+        | ProviderKind::Kiro => {}
     }
 }
 
@@ -784,6 +795,7 @@ fn provider_enabled_state(
         ProviderKind::OpenRouter => (ctx.openrouter_enabled, ctx.set_openrouter_enabled.clone()),
         ProviderKind::Antigravity => (ctx.antigravity_enabled, ctx.set_antigravity_enabled.clone()),
         ProviderKind::Grok => (ctx.grok_enabled, ctx.set_grok_enabled.clone()),
+        ProviderKind::Kiro => (ctx.kiro_enabled, ctx.set_kiro_enabled.clone()),
     }
 }
 
@@ -800,6 +812,7 @@ fn provider_install_status_for<'a>(
         ProviderKind::OpenRouter => ctx.openrouter_install_status,
         ProviderKind::Antigravity => ctx.antigravity_install_status,
         ProviderKind::Grok => ctx.grok_install_status,
+        ProviderKind::Kiro => ctx.kiro_install_status,
     }
 }
 
@@ -819,6 +832,9 @@ fn provider_description(provider: ProviderKind) -> &'static str {
         ProviderKind::Grok => {
             "Reads SuperGrok subscription credits from your existing official Grok CLI sign-in."
         }
+        ProviderKind::Kiro => {
+            "Reads monthly Kiro credits from the usage snapshot Kiro IDE stores locally."
+        }
     }
 }
 
@@ -830,6 +846,7 @@ fn source_labels(provider: ProviderKind) -> (&'static str, &'static str) {
         ProviderKind::Cursor => ("Cursor app", ""),
         ProviderKind::Antigravity => ("Antigravity app", "agy CLI"),
         ProviderKind::Grok => ("", "Grok CLI"),
+        ProviderKind::Kiro => ("Kiro IDE", ""),
         ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => ("", ""),
     }
 }
@@ -882,7 +899,10 @@ fn folder_config<'a>(
             description: "Folder with grok.exe, grok.cmd, or grok.ps1. Leave empty to find it automatically.",
             placeholder: r"C:\Users\you\.grok\bin",
         },
-        ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo | ProviderKind::OpenRouter => {
+        ProviderKind::OpenCodeZen
+        | ProviderKind::OpenCodeGo
+        | ProviderKind::OpenRouter
+        | ProviderKind::Kiro => {
             return None;
         }
     })

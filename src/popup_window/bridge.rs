@@ -148,6 +148,7 @@ pub(super) fn start_background_bridge(
                 .providers
                 .is_enabled(ProviderKind::Antigravity),
             grok_enabled: state.settings.providers.is_enabled(ProviderKind::Grok),
+            kiro_enabled: state.settings.providers.is_enabled(ProviderKind::Kiro),
             openrouter_credentials_revision: state.settings.openrouter_credentials_revision,
             popup_order: state.settings.popup_order.clone(),
             use_colored_provider_icons: state.settings.use_colored_provider_icons,
@@ -202,7 +203,8 @@ pub(super) fn start_background_bridge(
                 || ui.openrouter_enabled != settings.providers.is_enabled(ProviderKind::OpenRouter)
                 || ui.antigravity_enabled
                     != settings.providers.is_enabled(ProviderKind::Antigravity)
-                || ui.grok_enabled != settings.providers.is_enabled(ProviderKind::Grok);
+                || ui.grok_enabled != settings.providers.is_enabled(ProviderKind::Grok)
+                || ui.kiro_enabled != settings.providers.is_enabled(ProviderKind::Kiro);
             let opencode_zen_credentials_changed =
                 ui.opencode_zen_credentials_revision != settings.opencode_zen_credentials_revision;
             let opencode_go_credentials_changed =
@@ -254,6 +256,7 @@ pub(super) fn start_background_bridge(
             ui.openrouter_enabled = settings.providers.is_enabled(ProviderKind::OpenRouter);
             ui.antigravity_enabled = settings.providers.is_enabled(ProviderKind::Antigravity);
             ui.grok_enabled = settings.providers.is_enabled(ProviderKind::Grok);
+            ui.kiro_enabled = settings.providers.is_enabled(ProviderKind::Kiro);
             ui.openrouter_credentials_revision = settings.openrouter_credentials_revision;
             ui.popup_order = settings.popup_order.clone();
             ui.use_colored_provider_icons = settings.use_colored_provider_icons;
@@ -652,6 +655,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }
@@ -752,6 +756,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }
@@ -783,6 +788,7 @@ pub(super) fn start_background_bridge(
                         || (provider == ProviderKind::OpenRouter && !ui.openrouter_enabled)
                         || (provider == ProviderKind::Antigravity && !ui.antigravity_enabled)
                         || (provider == ProviderKind::Grok && !ui.grok_enabled)
+                        || (provider == ProviderKind::Kiro && !ui.kiro_enabled)
                     {
                         continue;
                     }

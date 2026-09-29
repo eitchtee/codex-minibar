@@ -180,6 +180,19 @@ pub fn start_provider_worker(
                 Duration::from_secs(settings.limit_refresh_interval.seconds()),
             )
         }
+        ProviderKind::Kiro => worker::start_worker(
+            crate::kiro::KiroClient::new(),
+            crate::kiro::KiroClient::new(),
+            crate::kiro::KiroActivator,
+            activation_path,
+            false,
+            Vec::new(),
+            Vec::new(),
+            settings.history_retention_days,
+            Duration::from_secs(settings.usage_refresh_interval.seconds()),
+            false,
+            Duration::from_secs(settings.limit_refresh_interval.seconds()),
+        ),
     };
     let source_events = worker
         .take_events()
@@ -293,5 +306,6 @@ fn provider_activation_path(provider: ProviderKind, base_path: PathBuf) -> PathB
         ProviderKind::OpenRouter => base_path.with_file_name("activation-openrouter.toml"),
         ProviderKind::Antigravity => base_path.with_file_name("activation-antigravity.toml"),
         ProviderKind::Grok => base_path.with_file_name("activation-grok.toml"),
+        ProviderKind::Kiro => base_path.with_file_name("activation-kiro.toml"),
     }
 }
