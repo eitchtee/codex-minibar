@@ -403,6 +403,8 @@ pub fn parse_wham_usage(response: &Value, sampled_at: DateTime<Utc>) -> Result<R
     Ok(RateLimits {
         primary,
         secondary: parse_wham_window(rate_limit.get("secondary_window")),
+        primary_usage_amount: None,
+        secondary_usage_amount: None,
         sampled_at,
         primary_window_is_unactivated,
         account_name,
@@ -649,6 +651,8 @@ pub fn parse_rate_limits(
     Ok(RateLimits {
         primary,
         secondary: parse_window(limits.get("secondary")),
+        primary_usage_amount: None,
+        secondary_usage_amount: None,
         sampled_at,
         primary_window_is_unactivated,
         account_name: None,

@@ -49,6 +49,7 @@ pub(super) fn enabled_providers(
     openrouter_enabled: bool,
     antigravity_enabled: bool,
     grok_enabled: bool,
+    kiro_enabled: bool,
 ) -> Vec<ProviderKind> {
     order
         .iter()
@@ -62,6 +63,7 @@ pub(super) fn enabled_providers(
             ProviderKind::OpenRouter => openrouter_enabled,
             ProviderKind::Antigravity => antigravity_enabled,
             ProviderKind::Grok => grok_enabled,
+            ProviderKind::Kiro => kiro_enabled,
         })
         .filter(|provider| {
             !crate::provider_registry::descriptor(*provider)

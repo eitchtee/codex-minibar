@@ -81,6 +81,7 @@ pub(super) fn commit_widget_drag(
                     ProviderKind::OpenRouter => ui.openrouter_enabled,
                     ProviderKind::Antigravity => ui.antigravity_enabled,
                     ProviderKind::Grok => ui.grok_enabled,
+                    ProviderKind::Kiro => ui.kiro_enabled,
                 })
                 .map(|descriptor| descriptor.kind),
         ),

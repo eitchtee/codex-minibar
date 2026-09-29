@@ -43,6 +43,7 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
 - Show five-hour and weekly usage in one or more configurable tray icons.
 - Choose numbers, bars, rings, reset times, or reset countdowns; show remaining or used
   percentage as appropriate.
+- Track Kiro's monthly included credits and reset date in its provider card and tray widget.
 - Open a compact native popup for the current plan, credits, limit windows, and local token
   statistics (today, the configured history window, and a compact activity bar chart).
 - Receive Windows notifications when a limit resets, usage becomes low, Codex cannot be
@@ -57,7 +58,7 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
   on click when it is not running.
 - Start with Windows, update in place from GitHub Releases, and retain history locally.
 - Detect Codex installations automatically, with an override for a custom executable path.
-- Enable Codex, Claude, Cursor, OpenCode Zen, OpenCode Go, OpenRouter, Antigravity, and Grok independently in **Settings → Providers**. Providers refresh independently; Antigravity and Grok show subscription quota rather than unrelated API billing.
+- Enable Codex, Claude, Cursor, OpenCode Zen, OpenCode Go, OpenRouter, Antigravity, Grok, and Kiro independently in **Settings → Providers**. Providers refresh independently; Antigravity, Grok, and Kiro show subscription quota rather than unrelated API billing.
 
 ## Requirements
 
@@ -66,9 +67,20 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
 
 The app does not copy provider credentials into its ordinary settings file. It talks to the local
 Codex app server, reads Claude Code's existing local OAuth session, reads OpenCode's local
-configuration/history, reuses the official Antigravity or Grok CLI sign-in, or requests OpenRouter key usage. Optional OpenCode and OpenRouter manual
-API keys are protected with Windows user-scoped DPAPI storage. The app stores its own settings and
-usage history in your Windows user profile.
+configuration/history, reuses the official Antigravity or Grok CLI sign-in, requests live Kiro
+monthly credits with the shared Kiro sign-in and detects the Kiro IDE, Kiro Crew, and Kiro CLI as
+available sources, or requests OpenRouter key usage. The Crew app is detected for per-user and
+all-users installs and shares the same Kiro credit provider rather than adding a duplicate balance
+card. The shared Kiro access token is read-only and never refreshed or written. The live endpoint
+also supplies plan and account labels. If it is unavailable, Minibar falls back to the IDE's local
+usage cache when available and keeps its own last stored Kiro snapshot. The endpoint is currently
+undocumented by Kiro and may change. Kiro subscription credits stay separate from API-equivalent
+Total Spend.
+Optional OpenCode and OpenRouter manual API keys are protected with Windows user-scoped DPAPI
+storage. The app stores its own settings and usage history in your Windows user profile.
+
+Kiro's plan appears on its provider card. The account label uses Kiro's display name when available,
+then its email address, and follows the **Show account name** preference. Redacted values are hidden.
 
 For Antigravity, run `agy` and complete its normal sign-in once; Minibar reads that existing
 Windows Credential Manager session and never stores it in app settings. For Grok, run `grok login`;

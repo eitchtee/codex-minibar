@@ -46,9 +46,11 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let openrouter_enabled = ctx.openrouter_enabled;
     let antigravity_enabled = ctx.antigravity_enabled;
     let grok_enabled = ctx.grok_enabled;
+    let kiro_enabled = ctx.kiro_enabled;
     let popup_order = ctx.popup_order;
     let use_colored_provider_icons = ctx.use_colored_provider_icons;
     let show_used_percentage = ctx.show_used_percentage;
+    let show_usage_values = ctx.show_usage_values;
     let show_usage_pace = ctx.show_usage_pace;
     let compact_usage_cards = ctx.compact_usage_cards;
     let show_account_name = ctx.show_account_name;
@@ -59,6 +61,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let expanded_popup_provider = ctx.expanded_popup_provider;
     let set_use_colored_provider_icons = ctx.set_use_colored_provider_icons.clone();
     let set_show_used_percentage = ctx.set_show_used_percentage.clone();
+    let set_show_usage_values = ctx.set_show_usage_values.clone();
     let set_show_usage_pace = ctx.set_show_usage_pace.clone();
     let set_compact_usage_cards = ctx.set_compact_usage_cards.clone();
     let set_show_account_name = ctx.set_show_account_name.clone();
@@ -71,6 +74,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let settings_tx = ctx.settings_tx.clone();
     let apply_use_colored_provider_icons = settings_tx.clone();
     let apply_show_used_percentage = settings_tx.clone();
+    let apply_show_usage_values = settings_tx.clone();
     let apply_show_usage_pace = settings_tx.clone();
     let apply_compact_usage_cards = settings_tx.clone();
     let apply_show_account_name = settings_tx.clone();
@@ -88,6 +92,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     );
     let mut rows = vec![
         settings_section_heading("Tabs").with_key("customize-tabs-heading"),
@@ -138,6 +143,29 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
             set_hovered_card_id.clone(),
         )
         .with_key("customize-show-used"),
+        settings_toggle_card_with_description(
+            "Show usage in values (when possible)",
+            Some("Adds exact used/limit amounts next to percentages when a provider reports them."),
+            show_usage_values,
+            {
+                let set_show_usage_values = set_show_usage_values.clone();
+                let apply_show_usage_values = apply_show_usage_values.clone();
+                move |value| {
+                    persist_bool(
+                        set_show_usage_values.clone(),
+                        apply_show_usage_values.clone(),
+                        value,
+                        |settings, value| {
+                            settings.show_usage_values = value;
+                        },
+                    );
+                }
+            },
+            "customize-show-usage-values",
+            hovered_card_id,
+            set_hovered_card_id.clone(),
+        )
+        .with_key("customize-show-usage-values"),
         settings_toggle_card_with_description(
             "Show usage pace",
             Some("Marks whether you're burning quota faster or slower than an even pace."),

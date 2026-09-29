@@ -629,6 +629,7 @@ pub enum ProviderKind {
     OpenRouter,
     Antigravity,
     Grok,
+    Kiro,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -751,7 +752,7 @@ fn new_openrouter_id(prefix: &str) -> String {
 }
 
 impl ProviderKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Codex,
         Self::Claude,
         Self::Cursor,
@@ -760,6 +761,7 @@ impl ProviderKind {
         Self::OpenRouter,
         Self::Antigravity,
         Self::Grok,
+        Self::Kiro,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -772,6 +774,7 @@ impl ProviderKind {
             Self::OpenRouter => "openrouter",
             Self::Antigravity => "antigravity",
             Self::Grok => "grok",
+            Self::Kiro => "kiro",
         }
     }
 
@@ -785,6 +788,7 @@ impl ProviderKind {
             "openrouter" => Some(Self::OpenRouter),
             "antigravity" => Some(Self::Antigravity),
             "grok" => Some(Self::Grok),
+            "kiro" => Some(Self::Kiro),
             _ => None,
         }
     }
@@ -799,6 +803,7 @@ impl ProviderKind {
             Self::OpenRouter => "OpenRouter",
             Self::Antigravity => "Antigravity",
             Self::Grok => "Grok",
+            Self::Kiro => "Kiro",
         }
     }
 
@@ -1182,10 +1187,11 @@ pub enum PopupWidgetKind {
     OpenRouter,
     Antigravity,
     Grok,
+    Kiro,
 }
 
 impl PopupWidgetKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::TotalSpend,
         Self::Codex,
         Self::Claude,
@@ -1195,6 +1201,7 @@ impl PopupWidgetKind {
         Self::OpenRouter,
         Self::Antigravity,
         Self::Grok,
+        Self::Kiro,
     ];
 
     pub fn default_order() -> Vec<Self> {
@@ -1212,6 +1219,7 @@ impl PopupWidgetKind {
             Self::OpenRouter => "openrouter",
             Self::Antigravity => "antigravity",
             Self::Grok => "grok",
+            Self::Kiro => "kiro",
         }
     }
 
@@ -1226,6 +1234,7 @@ impl PopupWidgetKind {
             Self::OpenRouter => Some(ProviderKind::OpenRouter),
             Self::Antigravity => Some(ProviderKind::Antigravity),
             Self::Grok => Some(ProviderKind::Grok),
+            Self::Kiro => Some(ProviderKind::Kiro),
         }
     }
 
@@ -1239,6 +1248,7 @@ impl PopupWidgetKind {
             ProviderKind::OpenRouter => Self::OpenRouter,
             ProviderKind::Antigravity => Self::Antigravity,
             ProviderKind::Grok => Self::Grok,
+            ProviderKind::Kiro => Self::Kiro,
         }
     }
 }
@@ -1639,6 +1649,8 @@ pub struct Settings {
     pub reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval,
     pub start_at_login: bool,
     pub show_used_percentage: bool,
+    #[serde(default = "default_show_usage_values")]
+    pub show_usage_values: bool,
     pub show_usage_pace: bool,
     /// Uses the compact full-card progress layout for popup quota cards.
     /// False preserves the standard header, bar, and footer layout.
@@ -1667,6 +1679,18 @@ pub struct Settings {
     /// Optional explicit Grok CLI folder. When unset, discovery continues to
     /// search PATH and the normal Grok home locations.
     pub grok_path: Option<PathBuf>,
+    /// Optional explicit Kiro IDE folder or executable. When unset, discovery
+    /// searches the standard per-user and system install locations.
+    #[serde(default)]
+    pub kiro_path: Option<PathBuf>,
+    /// Optional explicit Kiro Crew desktop-app folder or executable. When
+    /// unset, discovery checks per-user, all-users, and registered installs.
+    #[serde(default)]
+    pub kiro_crew_path: Option<PathBuf>,
+    /// Optional explicit Kiro CLI folder or executable. When unset, discovery
+    /// searches its standard install locations and PATH.
+    #[serde(default)]
+    pub kiro_cli_path: Option<PathBuf>,
     /// Non-secret revisions used to make manual OpenCode key changes refresh
     /// already-running workers immediately. The key material lives in the
     /// protected secrets store, never in this file.
@@ -1686,6 +1710,10 @@ pub struct Settings {
     pub notifications: NotificationSettings,
     pub history_retention_days: u16,
     pub check_for_updates: bool,
+}
+
+fn default_show_usage_values() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -1715,6 +1743,7 @@ impl Default for Settings {
             reset_announcement_refresh_interval: ResetAnnouncementRefreshInterval::default(),
             start_at_login: true,
             show_used_percentage: false,
+            show_usage_values: true,
             show_usage_pace: true,
             compact_usage_cards: false,
             popup_visibility: PopupVisibility::build_defaults(),
@@ -1727,6 +1756,9 @@ impl Default for Settings {
             cursor_path: None,
             antigravity_path: None,
             grok_path: None,
+            kiro_path: None,
+            kiro_crew_path: None,
+            kiro_cli_path: None,
             opencode_zen_credentials_revision: 0,
             opencode_go_credentials_revision: 0,
             openrouter_credentials_revision: 0,
@@ -3665,6 +3697,7 @@ enabled = ["codex", "claude"]
                 PopupWidgetKind::OpenRouter,
                 PopupWidgetKind::Antigravity,
                 PopupWidgetKind::Grok,
+                PopupWidgetKind::Kiro,
             ]
         );
         assert!(settings.move_popup_widget(

@@ -92,6 +92,7 @@ pub(super) fn popup_tab_button(
         Some("openrouter") => popup_provider_icon_color(ProviderKind::OpenRouter, color_scheme),
         Some("antigravity") => popup_provider_icon_color(ProviderKind::Antigravity, color_scheme),
         Some("grok") => popup_provider_icon_color(ProviderKind::Grok, color_scheme),
+        Some("kiro") => popup_provider_icon_color(ProviderKind::Kiro, color_scheme),
         Some("fluent-chart") | Some("fluent-home") => popup_chrome_icon_color(color_scheme, false),
         _ => idle_icon_color,
     };

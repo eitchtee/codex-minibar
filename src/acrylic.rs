@@ -148,17 +148,20 @@ pub fn install_popup_mica_into(mount: windows_core::IInspectable) -> Result<()> 
 /// Host a Phosphor path with a caller-supplied color. The geometry and tint
 /// deliberately stay independent so controls can react to hover/theme state.
 ///
-/// `canvas` is the SVG viewBox size. Wrapping the Path in that Canvas keeps
-/// design padding so edge curves (like power) are not AA-clipped.
+/// The canvas dimensions are the SVG viewBox size. Wrapping the Path in that
+/// Canvas keeps its aspect ratio and design padding so curves are not clipped.
 pub fn install_colored_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
     color: (u8, u8, u8),
+    even_odd: bool,
 ) -> Result<()> {
     let (r, g, b) = color;
+    let icon = icon_path_markup(path, &format!("#{r:02X}{g:02X}{b:02X}"), even_odd);
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="#{r:02X}{g:02X}{b:02X}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}">{icon}</Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
 }
@@ -168,10 +171,17 @@ pub fn install_colored_icon_into(
 pub fn install_accent_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
+    even_odd: bool,
 ) -> Result<()> {
+    let icon = icon_path_markup(
+        path,
+        "{ThemeResource AccentFillColorDefaultBrush}",
+        even_odd,
+    );
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="{{ThemeResource AccentFillColorDefaultBrush}}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}">{icon}</Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
 }
@@ -181,12 +191,31 @@ pub fn install_accent_icon_into(
 pub fn install_info_bar_error_icon_into(
     mount: windows_core::IInspectable,
     path: &str,
-    canvas: f64,
+    canvas_width: f64,
+    canvas_height: f64,
+    even_odd: bool,
 ) -> Result<()> {
+    let icon = icon_path_markup(
+        path,
+        "{ThemeResource InfoBarErrorSeverityIconBackground}",
+        even_odd,
+    );
     let xaml = format!(
-        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas}" Height="{canvas}"><Path Fill="{{ThemeResource InfoBarErrorSeverityIconBackground}}" Data="{path}" /></Canvas></Viewbox>"##
+        r##"<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Stretch="Uniform"><Canvas Width="{canvas_width}" Height="{canvas_height}">{icon}</Canvas></Viewbox>"##
     );
     install_into_inner(mount, &xaml)
+}
+
+fn icon_path_markup(path: &str, fill: &str, even_odd: bool) -> String {
+    if even_odd {
+        // Path.Data's move/draw mini-language supports the F0 prefix for
+        // EvenOdd fill. This is also the format used by PathIcon in the
+        // provider sidebar; use it here so compound Kiro paths render through
+        // the SwapChainPanel hosts as well.
+        format!(r#"<Path Fill="{fill}" Data="F0 {path}" />"#)
+    } else {
+        format!(r#"<Path Fill="{fill}" Data="{path}" />"#)
+    }
 }
 
 /// Host a data-driven XAML chart inside a reactor swap-chain panel. The

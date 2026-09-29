@@ -24,6 +24,15 @@ pub struct LimitWindow {
     pub duration_minutes: Option<u32>,
 }
 
+/// Exact provider-reported values behind a quota percentage, when available.
+/// These remain separate from `LimitWindow` so existing providers can keep
+/// reporting percentages without inventing absolute counts.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageAmount {
+    pub used: f64,
+    pub limit: f64,
+}
+
 /// A named quota window supplied in addition to the standard session and
 /// weekly limits. Claude adds model- and feature-specific windows over time,
 /// so these must remain data-driven rather than being discarded by a fixed
@@ -202,6 +211,12 @@ impl LimitWindow {
 pub struct RateLimits {
     pub primary: LimitWindow,
     pub secondary: LimitWindow,
+    /// Absolute amounts corresponding to the primary quota window, if known.
+    #[serde(default)]
+    pub primary_usage_amount: Option<UsageAmount>,
+    /// Absolute amounts corresponding to the secondary quota window, if known.
+    #[serde(default)]
+    pub secondary_usage_amount: Option<UsageAmount>,
     pub sampled_at: DateTime<Utc>,
     /// Provider-derived marker for a possible Codex synthetic 5h response.
     /// The scheduler confirms it across neighboring reset timestamps; other
@@ -273,6 +288,7 @@ impl RateLimits {
             && self.primary.looks_like_weekly(now)
         {
             self.secondary = std::mem::take(&mut self.primary);
+            self.secondary_usage_amount = self.primary_usage_amount.take();
             self.primary_window_is_unactivated = false;
         }
         self

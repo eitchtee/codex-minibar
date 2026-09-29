@@ -39,6 +39,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let openrouter_enabled = ctx.openrouter_enabled;
     let antigravity_enabled = ctx.antigravity_enabled;
     let grok_enabled = ctx.grok_enabled;
+    let kiro_enabled = ctx.kiro_enabled;
     let tray_widgets = ctx.tray_widgets;
     let expanded_tray_widget = ctx.expanded_tray_widget;
     let editing_tray_indicator = ctx.editing_tray_indicator;
@@ -65,6 +66,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         openrouter_enabled,
         antigravity_enabled,
         grok_enabled,
+        kiro_enabled,
     );
     (
         "Tray",

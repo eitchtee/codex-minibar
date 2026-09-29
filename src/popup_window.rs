@@ -15,7 +15,7 @@ use windows_reactor::*;
 use crate::{
     limits::{
         LimitWindow, OpenRouterAccountSnapshot, PaceTip, ProviderLimits, RateLimits,
-        SpendingSummary,
+        SpendingSummary, UsageAmount,
     },
     notifications,
     notifications::LimitNotificationTracker,

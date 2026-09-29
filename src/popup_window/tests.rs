@@ -166,7 +166,10 @@ fn usage_statistics_section_respects_its_live_toggle() {
         ..Default::default()
     };
 
-    assert!(popup_sections(&limits, false).contains(&PopupSection::UsageStatistics));
+    assert!(
+        popup_sections(ProviderKind::OpenCodeZen, &limits, false)
+            .contains(&PopupSection::UsageStatistics)
+    );
     let excluded_from_home = all_visible();
     let home_cards = provider_cards(
         ProviderKind::OpenCodeZen,
@@ -176,6 +179,7 @@ fn usage_statistics_section_respects_its_live_toggle() {
         false,
         true,
         false,
+        true,
         &excluded_from_home,
         PopupSurface::HomeTab,
         true,
@@ -202,6 +206,7 @@ fn usage_statistics_section_respects_its_live_toggle() {
         false,
         true,
         false,
+        true,
         &excluded_from_home,
         PopupSurface::ProviderTab,
         true,
@@ -230,6 +235,7 @@ fn usage_statistics_section_respects_its_live_toggle() {
         false,
         true,
         false,
+        true,
         &hidden_usage,
         PopupSurface::ProviderTab,
         true,
@@ -423,6 +429,7 @@ fn popup_visibility_hides_codex_resets_on_all_but_shows_on_provider_tab() {
         false,
         true,
         false,
+        true,
         &visibility,
         PopupSurface::HomeTab,
         true,
@@ -447,6 +454,7 @@ fn popup_visibility_hides_codex_resets_on_all_but_shows_on_provider_tab() {
         false,
         true,
         false,
+        true,
         &visibility,
         PopupSurface::ProviderTab,
         true,
@@ -489,6 +497,7 @@ fn popup_section_all_off_drops_provider_from_home_tab() {
         false,
         false,
         false,
+        false,
     );
     assert!(!widgets.contains(&PopupWidgetKind::Codex));
     let limits = plan_limits("plus");
@@ -500,6 +509,7 @@ fn popup_section_all_off_drops_provider_from_home_tab() {
         false,
         true,
         false,
+        true,
         &visibility,
         PopupSurface::ProviderTab,
         true,
@@ -531,11 +541,11 @@ fn format_reset_in_future_duration() {
 
 #[test]
 fn free_to_plus_replaces_monthly_with_session_and_weekly_sections() {
-    let free = popup_sections(&plan_limits("free"), false);
+    let free = popup_sections(ProviderKind::Codex, &plan_limits("free"), false);
     assert_eq!(free, vec![PopupSection::Monthly]);
     assert_unique_section_keys(&free);
 
-    let plus = popup_sections(&plan_limits("plus"), false);
+    let plus = popup_sections(ProviderKind::Codex, &plan_limits("plus"), false);
     assert_eq!(plus, vec![PopupSection::FiveHour, PopupSection::Weekly,]);
     assert_unique_section_keys(&plus);
 }
@@ -545,7 +555,7 @@ fn disabled_five_hour_session_is_omitted_from_popup() {
     let mut limits = plan_limits("plus");
     limits.primary = LimitWindow::default();
 
-    let sections = popup_sections(&limits, false);
+    let sections = popup_sections(ProviderKind::Codex, &limits, false);
     assert_eq!(sections, vec![PopupSection::Weekly]);
     assert_unique_section_keys(&sections);
 }
@@ -566,7 +576,7 @@ fn zen_without_quota_windows_does_not_render_placeholder_limit_cards() {
         ..Default::default()
     };
     assert_eq!(
-        popup_sections(&limits, false),
+        popup_sections(ProviderKind::OpenCodeZen, &limits, false),
         vec![PopupSection::UsageStatistics]
     );
 }
@@ -583,11 +593,11 @@ fn credits_only_render_for_a_real_balance_or_unlimited_access() {
     limits.credits.has_credits = true;
     limits.credits.balance = Some("undefined".into());
     assert_eq!(credits_display_value(&limits), None);
-    assert!(!popup_sections(&limits, false).contains(&PopupSection::Credits));
+    assert!(!popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::Credits));
 
     limits.credits.balance = Some("$12.50".into());
     assert_eq!(credits_display_value(&limits).as_deref(), Some("$12.50"));
-    assert!(popup_sections(&limits, false).contains(&PopupSection::Credits));
+    assert!(popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::Credits));
 
     limits.credits = Default::default();
     limits.credits.unlimited = true;
@@ -616,6 +626,7 @@ fn provider_cards_include_each_additional_limit() {
         false,
         true,
         false,
+        true,
         &all_visible(),
         PopupSurface::ProviderTab,
         true,
@@ -644,7 +655,7 @@ fn sections_keep_banked_resets_singleton() {
         ..Default::default()
     });
 
-    let sections = popup_sections(&limits, true);
+    let sections = popup_sections(ProviderKind::Codex, &limits, true);
     assert_eq!(
         sections,
         vec![
@@ -665,7 +676,9 @@ fn banked_resets_section_is_available_when_data_exists() {
         ..Default::default()
     });
 
-    assert!(popup_sections(&limits, false).contains(&PopupSection::BankedResets));
+    assert!(
+        popup_sections(ProviderKind::Codex, &limits, false).contains(&PopupSection::BankedResets)
+    );
 }
 
 #[test]
@@ -898,6 +911,7 @@ fn every_provider_membership_has_the_expected_tab_order() {
             openrouter,
             antigravity,
             grok,
+            false,
         );
         let providers = provider_order_from_popup(&default_order);
 
@@ -939,9 +953,10 @@ fn every_provider_membership_has_the_expected_tab_order() {
         PopupWidgetKind::OpenRouter,
         PopupWidgetKind::Antigravity,
         PopupWidgetKind::Grok,
+        PopupWidgetKind::Kiro,
     ];
     let views = enabled_popup_views(
-        &reversed, true, true, true, true, true, true, true, true, true,
+        &reversed, true, true, true, true, true, true, true, true, true, true,
     );
     assert_eq!(
         views,
@@ -956,6 +971,7 @@ fn every_provider_membership_has_the_expected_tab_order() {
             PopupView::OpenRouter,
             PopupView::Antigravity,
             PopupView::Grok,
+            PopupView::Kiro,
         ]
     );
 }
@@ -966,6 +982,7 @@ fn usage_stats_toggle_removes_only_the_usage_view() {
         &PopupWidgetKind::default_order(),
         false,
         true,
+        false,
         false,
         false,
         false,
@@ -1046,6 +1063,7 @@ fn openrouter_places_each_chart_inside_its_own_account_on_both_surfaces() {
                     false,
                     true,
                     false,
+                    true,
                     &visibility,
                     surface,
                     true,
