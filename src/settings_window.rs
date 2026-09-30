@@ -796,6 +796,7 @@ pub fn render(
     let (show_usage_values, set_show_usage_values) = cx.use_state(settings.show_usage_values);
     let (show_usage_pace, set_show_usage_pace) = cx.use_state(settings.show_usage_pace);
     let (compact_usage_cards, set_compact_usage_cards) = cx.use_state(settings.compact_usage_cards);
+    let (popup_two_columns, set_popup_two_columns) = cx.use_state(settings.popup_two_columns);
     let (popup_visibility, set_popup_visibility) = cx.use_state(settings.popup_visibility.clone());
     let (show_total_spend_on_all_tab, set_show_total_spend_on_all_tab) =
         cx.use_state(settings.show_total_spend_on_all_tab);
@@ -885,6 +886,7 @@ pub fn render(
             show_usage_values: set_show_usage_values.clone(),
             show_usage_pace: set_show_usage_pace.clone(),
             compact_usage_cards: set_compact_usage_cards.clone(),
+            popup_two_columns: set_popup_two_columns.clone(),
             popup_visibility: set_popup_visibility.clone(),
             discovered_popup_bricks: set_discovered_popup_bricks.clone(),
             show_total_spend_on_all_tab: set_show_total_spend_on_all_tab.clone(),
@@ -963,6 +965,7 @@ pub fn render(
         show_usage_values,
         show_usage_pace,
         compact_usage_cards,
+        popup_two_columns,
         popup_visibility: &popup_visibility,
         discovered_popup_bricks: &discovered_popup_bricks,
         show_total_spend_on_all_tab,
@@ -1039,6 +1042,7 @@ pub fn render(
         set_show_usage_values: set_show_usage_values.clone(),
         set_show_usage_pace: set_show_usage_pace.clone(),
         set_compact_usage_cards: set_compact_usage_cards.clone(),
+        set_popup_two_columns: set_popup_two_columns.clone(),
         set_popup_visibility: set_popup_visibility.clone(),
         set_discovered_popup_bricks: set_discovered_popup_bricks.clone(),
         set_show_total_spend_on_all_tab: set_show_total_spend_on_all_tab.clone(),

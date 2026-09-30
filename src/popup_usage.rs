@@ -20,6 +20,7 @@ const USAGE_CARD_PAD: f64 = 12.0;
 
 pub fn overview_page(
     snapshot: &OverviewSnapshot,
+    two_columns: bool,
     metric: OverviewMetric,
     range: OverviewRange,
     breakdown: BreakdownMode,
@@ -88,54 +89,74 @@ pub fn overview_page(
         })
     });
     let clear_hover = set_chart_hover.clone();
-    let page = vstack((
-        usage_header(
-            &range_label,
-            metric,
-            range,
-            usage_recalculating,
-            set_metric,
-            set_range,
-            &set_chart_hover,
-        )
+    let header = usage_header(
+        &range_label,
+        metric,
+        range,
+        usage_recalculating,
+        set_metric,
+        set_range,
+        &set_chart_hover,
+    )
+    .on_pointer_entered({
+        let clear_hover = clear_hover.clone();
+        move |_| dismiss_chart_hover(&clear_hover)
+    });
+    let hero = usage_hero(snapshot, metric, color_scheme, use_colored_provider_icons)
         .on_pointer_entered({
             let clear_hover = clear_hover.clone();
             move |_| dismiss_chart_hover(&clear_hover)
-        }),
-        usage_hero(snapshot, metric, color_scheme, use_colored_provider_icons).on_pointer_entered(
-            {
-                let clear_hover = clear_hover.clone();
-                move |_| dismiss_chart_hover(&clear_hover)
-            },
-        ),
-        usage_chart_card(
-            &filled,
-            snapshot.hourly,
-            &snapshot.providers,
-            metric,
-            chart_hover,
-            color_scheme,
-            set_chart_hover,
-        ),
-        usage_totals_card(&snapshot.totals).on_pointer_entered({
-            let clear_hover = clear_hover.clone();
-            move |_| dismiss_chart_hover(&clear_hover)
-        }),
-        usage_breakdown_card(
-            snapshot,
-            breakdown,
-            metric,
-            color_scheme,
-            use_colored_provider_icons,
-            set_breakdown,
-        )
-        .on_pointer_entered(move |_| dismiss_chart_hover(&clear_hover)),
-    ))
-    .spacing(10.0)
-    .horizontal_alignment(HorizontalAlignment::Stretch)
-    .relative_align_left()
-    .relative_align_right()
-    .relative_align_top();
+        });
+    let chart = usage_chart_card(
+        &filled,
+        snapshot.hourly,
+        &snapshot.providers,
+        metric,
+        chart_hover,
+        color_scheme,
+        set_chart_hover,
+    );
+    let totals = usage_totals_card(&snapshot.totals).on_pointer_entered({
+        let clear_hover = clear_hover.clone();
+        move |_| dismiss_chart_hover(&clear_hover)
+    });
+    let breakdown_card = usage_breakdown_card(
+        snapshot,
+        breakdown,
+        metric,
+        color_scheme,
+        use_colored_provider_icons,
+        set_breakdown,
+    )
+    .on_pointer_entered(move |_| dismiss_chart_hover(&clear_hover));
+    let sections: Vec<Element> = if two_columns {
+        let left: Element = vstack([hero, chart])
+            .spacing(10.0)
+            .vertical_alignment(VerticalAlignment::Top)
+            .grid_column(0)
+            .into();
+        let right: Element = vstack([totals, breakdown_card])
+            .spacing(10.0)
+            .vertical_alignment(VerticalAlignment::Top)
+            .grid_column(1)
+            .into();
+        vec![
+            header,
+            grid([left, right])
+                .columns([GridLength::Star(1.0), GridLength::Star(1.0)])
+                .column_spacing(12.0)
+                .horizontal_alignment(HorizontalAlignment::Stretch)
+                .into(),
+        ]
+    } else {
+        vec![header, hero, chart, totals, breakdown_card]
+    };
+    let page = vstack(sections)
+        .spacing(10.0)
+        .horizontal_alignment(HorizontalAlignment::Stretch)
+        .relative_align_left()
+        .relative_align_right()
+        .relative_align_top();
 
     relative_panel({
         let mut layers = vec![page.into()];
@@ -312,7 +333,8 @@ fn segmented_control(key: &str, tabs: Vec<SegmentedTab>, stretch: bool) -> Eleme
     let selected = tabs.iter().position(|tab| tab.selected).unwrap_or(0);
     let anim = crate::theme::duration(crate::theme::CONTROL_FAST_ANIMATION);
     let cell_width = if stretch {
-        (f64::from(popup::POPUP_WIDTH) - 2.0 - 32.0 - SEGMENTED_TRACK_PAD * 2.0) / count as f64
+        (f64::from(popup::client_width_dip()) - 2.0 - 32.0 - SEGMENTED_TRACK_PAD * 2.0)
+            / count as f64
     } else {
         tabs.iter()
             .map(|tab| segmented_tab_width(&tab.label))
@@ -1368,7 +1390,7 @@ fn apply_chart_tooltip_offset() {
 }
 
 fn usage_page_width() -> f64 {
-    f64::from(popup::POPUP_WIDTH) - 2.0 - 32.0
+    f64::from(popup::client_width_dip()) - 2.0 - 32.0
 }
 
 fn usage_header_height() -> f64 {

@@ -15,7 +15,7 @@ pub(super) fn provider_tab_strip_content_width(provider_count: usize, usage_enab
 pub(super) fn provider_tab_strip_viewport_width(update_available: bool) -> f64 {
     let size = popup::bottom_bar_size();
     let footer_action_count = FOOTER_BASE_ACTION_COUNT + f64::from(update_available);
-    f64::from(popup::POPUP_WIDTH)
+    f64::from(popup::client_width_dip())
         - size.tab_padding_left()
         - size.padding_right()
         - size.column_spacing()

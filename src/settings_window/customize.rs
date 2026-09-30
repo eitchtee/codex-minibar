@@ -60,6 +60,19 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let apply_compact_usage_cards = settings_tx.clone();
     let apply_show_account_name = settings_tx.clone();
     let mut rows = vec![
+        settings_section_heading("Layout").with_key("customize-layout-heading"),
+        settings_toggle_card_with_description(
+            "Use two columns",
+            Some("Widen Home and Usage. Drag Home blocks between columns; provider tabs stay compact."),
+            ctx.popup_two_columns,
+            {
+                let set_value = ctx.set_popup_two_columns.clone();
+                let settings_tx = settings_tx.clone();
+                move |value| persist_bool(set_value.clone(), settings_tx.clone(), value,
+                    |settings, value| settings.popup_two_columns = value)
+            },
+            "customize-two-columns", hovered_card_id, set_hovered_card_id.clone(),
+        ).with_key("customize-two-columns"),
         settings_section_heading("Tabs").with_key("customize-tabs-heading"),
         settings_toggle_card(
             "Use monochrome icons",

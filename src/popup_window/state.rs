@@ -340,6 +340,8 @@ pub(super) struct UiState {
     pub(super) opencode_go_credentials_revision: u64,
     pub(super) openrouter_credentials_revision: u64,
     pub(super) popup_order: Vec<PopupWidgetKind>,
+    pub(super) popup_two_columns: bool,
+    pub(super) popup_right_column: Option<Vec<PopupWidgetKind>>,
     pub(super) use_colored_provider_icons: bool,
     pub(super) replace_chatgpt_logo_with_codex: bool,
     pub(super) codex_path: Option<std::path::PathBuf>,
@@ -395,6 +397,8 @@ impl Default for UiState {
             kiro_enabled: false,
             openrouter_credentials_revision: 0,
             popup_order: PopupWidgetKind::default_order(),
+            popup_two_columns: false,
+            popup_right_column: None,
             use_colored_provider_icons: true,
             replace_chatgpt_logo_with_codex: false,
             codex_path: None,
@@ -411,6 +415,16 @@ impl Default for UiState {
 }
 
 impl UiState {
+    /// Shared seed for both the render tree and the background bridge. The
+    /// bridge publishes a complete snapshot, so it must restore layout too.
+    pub(super) fn popup_layout_from_settings(settings: &Settings) -> Self {
+        Self {
+            popup_two_columns: settings.popup_two_columns,
+            popup_right_column: settings.popup_right_column.clone(),
+            ..Self::default()
+        }
+    }
+
     /// Keep known HTTP authorization/access failures readable in the popup
     /// while retaining the complete provider error in the application log.
     pub(super) fn error_for_ui(error: &str) -> String {

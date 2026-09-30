@@ -124,7 +124,7 @@ fn run() -> Result<()> {
                     min_width: Some(f64::from(POPUP_WIDTH)),
                     // Keep min tiny — OverlappedPresenter preferred-min was blocking shrink.
                     min_height: Some(80.0),
-                    max_width: Some(f64::from(POPUP_WIDTH)),
+                    max_width: Some(f64::from(popup::POPUP_WIDE_WIDTH)),
                     // The actual 80% cap is selected from the monitor at
                     // popup-show time. A fixed 640 DIP creation constraint
                     // cannot be raised reliably by AppWindow later.

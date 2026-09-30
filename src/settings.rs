@@ -1624,6 +1624,11 @@ pub struct Settings {
     pub providers: ProviderSettings,
     /// Display order for Home-tab widgets (Usage Stats + providers) and footer tabs.
     pub popup_order: Vec<PopupWidgetKind>,
+    /// Wider Home and Usage pages; individual provider pages stay compact.
+    pub popup_two_columns: bool,
+    /// Home widgets assigned to the right column, independent of visibility.
+    /// None balances visible widgets automatically until the first user move.
+    pub popup_right_column: Option<Vec<PopupWidgetKind>>,
     /// Brand-colored provider glyphs in the popup. Settings expose the inverse
     /// as "Use monochrome icons".
     pub use_colored_provider_icons: bool,
@@ -1730,6 +1735,8 @@ impl Default for Settings {
             time_format: TimeFormat::from_windows(),
             providers: ProviderSettings::default(),
             popup_order: PopupWidgetKind::default_order(),
+            popup_two_columns: false,
+            popup_right_column: None,
             use_colored_provider_icons: true,
             use_colored_sidebar_icons: true,
             replace_chatgpt_logo_with_codex: false,
@@ -2085,6 +2092,23 @@ impl Settings {
                     .is_some_and(|provider| self.providers.is_enabled(provider)),
             })
             .collect()
+    }
+
+    /// Assigns a Home block without touching its global order or hidden slots.
+    pub fn assign_popup_widget_column(&mut self, widget: PopupWidgetKind, column: usize) -> bool {
+        if column > 1 {
+            return false;
+        }
+        let right = column == 1;
+        let right_column = self.popup_right_column.get_or_insert_with(Vec::new);
+        if right_column.contains(&widget) == right {
+            return false;
+        }
+        right_column.retain(|item| *item != widget);
+        if right {
+            right_column.push(widget);
+        }
+        true
     }
 
     /// Moves a visible Home-tab widget onto another visible widget's slot.
@@ -3708,6 +3732,37 @@ enabled = ["codex", "claude"]
         let loaded = Settings::load_or_create(&path).unwrap();
 
         assert_eq!(loaded.openrouter_accounts, vec![account]);
+    }
+
+    #[test]
+    fn popup_columns_default_off_and_round_trip_with_hidden_widgets() {
+        let legacy: Settings = toml::from_str("onboarding_completed = true").unwrap();
+        assert!(!legacy.popup_two_columns);
+        let mut settings = legacy;
+        settings.popup_two_columns = true;
+        let original_order = settings.popup_order.clone();
+        for widget in PopupWidgetKind::ALL {
+            settings.assign_popup_widget_column(widget, 0);
+            assert!(settings.assign_popup_widget_column(widget, 1));
+            assert!(!settings.assign_popup_widget_column(widget, 1));
+            assert!(!settings.assign_popup_widget_column(widget, 2));
+        }
+        assert_eq!(settings.popup_order, original_order);
+        assert_eq!(
+            settings.popup_right_column.as_ref().unwrap().len(),
+            PopupWidgetKind::ALL.len()
+        );
+        settings.providers = ProviderSettings::from_enabled([]);
+        let encoded = toml::to_string(&settings).unwrap();
+        let mut decoded: Settings = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded.popup_right_column, settings.popup_right_column);
+        decoded.popup_two_columns = false;
+        decoded.providers = ProviderSettings::from_enabled(ProviderKind::ALL);
+        assert_eq!(decoded.popup_right_column, settings.popup_right_column);
+        for widget in PopupWidgetKind::ALL {
+            assert!(decoded.assign_popup_widget_column(widget, 0));
+        }
+        assert!(decoded.popup_right_column.as_ref().unwrap().is_empty());
     }
 
     #[test]

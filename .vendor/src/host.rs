@@ -648,6 +648,23 @@ impl ReactorHost {
         Ok(())
     }
 
+    /// Remove create-time non-client minimum width before a popup switches layouts.
+    pub fn relax_width_constraints(&self, max_width_dip: f64) -> Result<()> {
+        let dpi = self.render_host.dpi().max(1);
+        let app_window = self.window.cast::<IWindow2>()?.AppWindow()?;
+        let outer = app_window.Size()?;
+        let client = app_window.cast::<IAppWindow2>()?.ClientSize()?;
+        let nc_width = outer.width.saturating_sub(client.width).max(0);
+        let presenter = app_window.Presenter()?.cast::<IOverlappedPresenter3>()?;
+        presenter.SetPreferredMinimumWidth(Some(1))?;
+        presenter.SetPreferredMaximumWidth(Some(
+            ((max_width_dip * f64::from(dpi) / 96.0).round() as i32)
+                .saturating_add(nc_width)
+                .max(1),
+        ))?;
+        Ok(())
+    }
+
     pub fn stats(&self) -> RenderStats {
         self.render_host.stats()
     }

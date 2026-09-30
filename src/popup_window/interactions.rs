@@ -4,6 +4,8 @@ use super::*;
 pub(super) struct WidgetDragState {
     pub(super) active: PopupWidgetKind,
     pub(super) over: PopupWidgetKind,
+    pub(super) column: Option<usize>,
+    pub(super) gesture: u64,
 }
 
 pub(super) fn persist_popup_order(
@@ -11,11 +13,14 @@ pub(super) fn persist_popup_order(
     set_ui: AsyncSetState<UiState>,
     mut ui: UiState,
     next_order: Vec<PopupWidgetKind>,
+    right_column: Vec<PopupWidgetKind>,
 ) {
     ui.popup_order = next_order.clone();
+    ui.popup_right_column = Some(right_column.clone());
     set_ui.call(ui);
     crate::settings_window::persist_update(settings_tx, move |settings| {
         settings.popup_order = next_order;
+        settings.popup_right_column = Some(right_column);
         settings.normalize_popup_order();
     });
 }
@@ -43,21 +48,22 @@ pub(super) fn commit_widget_drag(
     drag: WidgetDragState,
     set_drag: SetState<Option<WidgetDragState>>,
 ) {
-    // PointerReleased can hit both the section catcher and the page body in one
-    // gesture; only the first commit may mutate order.
-    thread_local! {
-        static COMMITTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    }
-    if COMMITTING.with(|flag| flag.replace(true)) {
+    // A routed release may reach the block, column and page in the same frame.
+    // Claim the gesture once, including no-op drops, before publishing state.
+    thread_local! { static LAST_COMMIT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+    if LAST_COMMIT.with(|last| {
+        if last.get() == drag.gesture {
+            true
+        } else {
+            last.set(drag.gesture);
+            false
+        }
+    }) {
         return;
     }
-
     set_drag.call(None);
-    if drag.active == drag.over {
-        COMMITTING.with(|flag| flag.set(false));
-        return;
-    }
-    let show_total_spend = ui.show_total_spend_on_all_tab
+    let show_total_spend = ui.usage_stats_enabled
+        && ui.show_total_spend_on_all_tab
         && total_spend_provider_count(
             ui.codex_enabled,
             ui.claude_enabled,
@@ -69,6 +75,7 @@ pub(super) fn commit_widget_drag(
         ) > 1;
     let mut scratch = Settings {
         popup_order: ui.popup_order.clone(),
+        popup_right_column: Some(home_right_column(&ui, show_total_spend)),
         providers: crate::settings::ProviderSettings::from_enabled(
             crate::provider_registry::PROVIDERS
                 .iter()
@@ -88,12 +95,20 @@ pub(super) fn commit_widget_drag(
         show_total_spend_on_all_tab: ui.show_total_spend_on_all_tab,
         ..Settings::default()
     };
-    if !scratch.move_popup_widget(drag.active, drag.over, show_total_spend) {
-        COMMITTING.with(|flag| flag.set(false));
-        return;
+    let reordered = scratch.move_popup_widget(drag.active, drag.over, show_total_spend);
+    let moved_column = drag
+        .column
+        .is_some_and(|column| scratch.assign_popup_widget_column(drag.active, column));
+    if reordered || moved_column {
+        remember_widget_positions();
+        persist_popup_order(
+            settings_tx,
+            set_ui,
+            ui,
+            scratch.popup_order,
+            scratch.popup_right_column.unwrap_or_default(),
+        );
     }
-    persist_popup_order(settings_tx, set_ui, ui, scratch.popup_order);
-    COMMITTING.with(|flag| flag.set(false));
 }
 
 pub(super) fn drag_handle(
@@ -131,6 +146,11 @@ pub(super) fn drag_handle(
         set_on_press.call(Some(WidgetDragState {
             active: widget,
             over: widget,
+            column: None,
+            gesture: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            },
         }));
     })
     .with_key(format!("drag-handle-{}", widget.id()))
@@ -140,6 +160,7 @@ pub(super) fn drag_handle(
 pub(super) fn with_widget_drop_target(
     widget: PopupWidgetKind,
     content: Element,
+    column: Option<usize>,
     drag: &Option<WidgetDragState>,
     set_drag: SetState<Option<WidgetDragState>>,
     settings_tx: Sender<Settings>,
@@ -197,6 +218,8 @@ pub(super) fn with_widget_drop_target(
                     set_on_enter.call(Some(WidgetDragState {
                         active: current.active,
                         over: widget,
+                        column,
+                        gesture: current.gesture,
                     }));
                 })
                 .on_pointer_released(move |_: PointerEventInfo| {
@@ -213,6 +236,8 @@ pub(super) fn with_widget_drop_target(
                         WidgetDragState {
                             active: current.active,
                             over: widget,
+                            column,
+                            gesture: current.gesture,
                         },
                         set_on_release.clone(),
                     );
@@ -222,10 +247,51 @@ pub(super) fn with_widget_drop_target(
         );
     }
 
-    grid(layers)
+    let layer: Element = grid(layers)
         .columns([GridLength::Star(1.0)])
         .rows([GridLength::Auto])
-        .horizontal_alignment(HorizontalAlignment::Stretch)
+        .into();
+    let mut host = vstack([layer]);
+    host.mounted = Some(Callback::new(
+        move |native: Option<windows_core::IInspectable>| {
+            let Some(native) = native else {
+                return;
+            };
+            WIDGET_MOUNTS.with(|mounts| {
+                mounts.borrow_mut().insert(widget, native.clone());
+            });
+            let _ = after_layout(move || {
+                let current =
+                    WIDGET_MOUNTS.with(|mounts| mounts.borrow().get(&widget) == Some(&native));
+                if !current {
+                    return;
+                }
+                let old = WIDGET_POSITIONS.with(|positions| positions.borrow_mut().remove(&widget));
+                if let Some((x, y)) = old
+                    && popup::animations_enabled()
+                    && let Ok((next_x, next_y)) = layout_position(native.clone())
+                {
+                    let _ = animate_layout_displacement(
+                        native.clone(),
+                        x - next_x,
+                        y - next_y,
+                        crate::theme::CONTROL_NORMAL_ANIMATION,
+                    );
+                }
+            });
+        },
+    ));
+    host.unmounted = Some(Callback::new(
+        move |native: Option<windows_core::IInspectable>| {
+            WIDGET_MOUNTS.with(|mounts| {
+                let mut mounts = mounts.borrow_mut();
+                if mounts.get(&widget) == native.as_ref() {
+                    mounts.remove(&widget);
+                }
+            });
+        },
+    ));
+    host.horizontal_alignment(HorizontalAlignment::Stretch)
         // Keep the host identity stable across highlight toggles so a remount
         // cannot swallow the in-flight pointer release.
         .with_key(format!("drop-target-{}", widget.id()))
@@ -333,4 +399,112 @@ pub(super) fn openrouter_delete_button(
             POPUP_ACTION_SIZE, idle_color.r, idle_color.g, idle_color.b
         ))
         .into()
+}
+
+/// A column remains a drop target when empty and below its final block.
+pub(super) fn widget_column(
+    column: usize,
+    blocks: Vec<Element>,
+    drag: &Option<WidgetDragState>,
+    set_drag: SetState<Option<WidgetDragState>>,
+    settings_tx: Sender<Settings>,
+    set_ui: AsyncSetState<UiState>,
+    ui: UiState,
+) -> Element {
+    let mut blocks = blocks;
+    let show_drop_zone = drag.is_some() || blocks.is_empty();
+    let mut target = border(
+        caption(if drag.is_some() { "Drop here" } else { "" })
+            .foreground(ThemeRef::TertiaryText)
+            .horizontal_alignment(HorizontalAlignment::Center),
+    )
+    .height(if blocks.is_empty() { 80.0 } else { 32.0 })
+    .background(Color::transparent())
+    .corner_radius(6.0)
+    .border_thickness(Thickness::uniform(1.0))
+    .border_brush(ThemeRef::Accent)
+    .opacity(if drag.is_some() { 1.0 } else { 0.0 });
+    if let Some(current) = drag.clone() {
+        let on_enter = current.clone();
+        let set_enter = set_drag.clone();
+        target = target
+            .on_pointer_entered(move |_| {
+                set_enter.call(Some(WidgetDragState {
+                    over: on_enter.active,
+                    column: Some(column),
+                    ..on_enter.clone()
+                }));
+            })
+            .on_pointer_released(move |_| {
+                commit_widget_drag(
+                    settings_tx.clone(),
+                    set_ui.clone(),
+                    ui.clone(),
+                    WidgetDragState {
+                        over: current.active,
+                        column: Some(column),
+                        ..current.clone()
+                    },
+                    set_drag.clone(),
+                );
+            });
+    }
+    if show_drop_zone {
+        blocks.push(target.with_key(format!("column-drop-{column}")).into());
+    }
+    vstack(blocks)
+        .spacing(6.0)
+        .vertical_alignment(VerticalAlignment::Top)
+        .horizontal_alignment(HorizontalAlignment::Stretch)
+        .grid_column(column as i32)
+        .with_key(format!("home-column-{column}"))
+        .into()
+}
+
+thread_local! {
+    static WIDGET_MOUNTS: std::cell::RefCell<HashMap<PopupWidgetKind, windows_core::IInspectable>> = std::cell::RefCell::new(HashMap::new());
+    static WIDGET_POSITIONS: std::cell::RefCell<HashMap<PopupWidgetKind, (f32, f32)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+pub(super) fn remember_widget_positions() {
+    WIDGET_POSITIONS.with(|positions| {
+        let mut positions = positions.borrow_mut();
+        positions.clear();
+        if !popup::animations_enabled() {
+            return;
+        }
+        WIDGET_MOUNTS.with(|mounts| {
+            for (widget, native) in mounts.borrow().iter() {
+                if let Ok(position) = layout_position(native.clone()) {
+                    let (origin_x, origin_y) = popup::window_origin_dip();
+                    positions.insert(*widget, (position.0 + origin_x, position.1 + origin_y));
+                }
+            }
+        });
+    });
+}
+
+/// Auto-distribute only the currently visible blocks until the user first moves one.
+/// Once assigned, hidden providers keep their saved column when they return.
+pub(super) fn home_right_column(ui: &UiState, show_total_spend: bool) -> Vec<PopupWidgetKind> {
+    ui.popup_right_column.clone().unwrap_or_else(|| {
+        visible_popup_widgets(
+            &ui.popup_order,
+            show_total_spend,
+            &ui.popup_visibility,
+            ui.codex_enabled,
+            ui.claude_enabled,
+            ui.cursor_enabled,
+            ui.opencode_zen_enabled,
+            ui.opencode_go_enabled,
+            ui.openrouter_enabled,
+            ui.antigravity_enabled,
+            ui.grok_enabled,
+            ui.kiro_enabled,
+        )
+        .into_iter()
+        .skip(1)
+        .step_by(2)
+        .collect()
+    })
 }

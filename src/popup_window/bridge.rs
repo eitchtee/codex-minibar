@@ -163,7 +163,7 @@ pub(super) fn start_background_bridge(
             kiro_crew_path: state.settings.kiro_crew_path.clone(),
             kiro_cli_path: state.settings.kiro_cli_path.clone(),
             update_version: update_version_from_phase(&update_phase),
-            ..UiState::default()
+            ..UiState::popup_layout_from_settings(&state.settings)
         };
         if let Some(error) = ui.error.as_deref() {
             crate::logger::info(format!("Popup error: {error}"));
@@ -264,6 +264,8 @@ pub(super) fn start_background_bridge(
             ui.kiro_enabled = settings.providers.is_enabled(ProviderKind::Kiro);
             ui.openrouter_credentials_revision = settings.openrouter_credentials_revision;
             ui.popup_order = settings.popup_order.clone();
+            ui.popup_two_columns = settings.popup_two_columns;
+            ui.popup_right_column = settings.popup_right_column.clone();
             ui.use_colored_provider_icons = settings.use_colored_provider_icons;
             ui.replace_chatgpt_logo_with_codex = settings.replace_chatgpt_logo_with_codex;
             *notification_settings = settings.notifications.clone();

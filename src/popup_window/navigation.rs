@@ -21,6 +21,10 @@ pub(super) enum PopupView {
 }
 
 impl PopupView {
+    pub(super) const fn uses_two_columns(self, enabled: bool) -> bool {
+        enabled && matches!(self, Self::Home | Self::Usage)
+    }
+
     pub(super) const fn from_provider(provider: ProviderKind) -> Self {
         match provider {
             ProviderKind::Codex => Self::Codex,
@@ -222,6 +226,11 @@ pub(super) enum PagerDirection {
     Backward,
 }
 
+/// The viewport reconciles native hosts by role, independently of sibling slots.
+pub(super) fn popup_page_host_key(role: &str) -> String {
+    format!("popup-page-host-{role}")
+}
+
 pub(super) const PAGER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 pub(super) const REFRESH_SPIN_DURATION: Duration = Duration::from_millis(650);
 pub(super) const REFRESH_PAUSE_DURATION: Duration = Duration::from_millis(280);
@@ -263,15 +272,25 @@ impl PagerDirection {
         }
     }
 
-    pub(super) const fn outgoing_offset(self) -> f32 {
+    pub(super) const fn outgoing_offset(self, page_width: i32) -> f32 {
         match self {
-            Self::Forward => -(popup::POPUP_WIDTH as f32),
-            Self::Backward => popup::POPUP_WIDTH as f32,
+            Self::Forward => -(page_width as f32),
+            Self::Backward => page_width as f32,
         }
     }
 
-    pub(super) const fn incoming_offset(self) -> f32 {
-        -self.outgoing_offset()
+    pub(super) const fn incoming_offset(self, page_width: i32) -> f32 {
+        -self.outgoing_offset(page_width)
+    }
+}
+
+/// Both pages must travel past the widest surface in a mixed-width transition.
+/// Using only the incoming width leaves half of an outgoing two-column page visible.
+pub(super) const fn pager_slide_width(from: PopupView, to: PopupView, two_columns: bool) -> i32 {
+    if from.uses_two_columns(two_columns) || to.uses_two_columns(two_columns) {
+        popup::POPUP_WIDE_WIDTH
+    } else {
+        popup::POPUP_WIDTH
     }
 }
 

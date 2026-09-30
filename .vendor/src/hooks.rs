@@ -179,3 +179,72 @@ fn composition_easing(
 fn duration_to_timespan(d: Duration) -> TimeSpan {
     TimeSpan::try_from(d).unwrap_or(TimeSpan::MAX)
 }
+
+/// Layout position in the XAML root, used to animate a retained block after reparenting.
+/// Walk XAML parents because a visual's Offset is local to its layout parent.
+pub fn layout_position(native: windows_core::IInspectable) -> Result<(f32, f32)> {
+    let mut current = native;
+    let (mut x, mut y) = (0.0, 0.0);
+    for _ in 0..64 {
+        let ui = current.cast::<UIElement>()?;
+        let offset = ElementCompositionPreview::GetElementVisual(&ui)?
+            .cast::<IVisual>()?
+            .Offset()?;
+        x += offset.x;
+        y += offset.y;
+        let Ok(parent) = current.cast::<IFrameworkElement>()?.Parent() else {
+            break;
+        };
+        if parent.cast::<UIElement>().is_err() {
+            break;
+        }
+        current = parent.cast()?;
+    }
+    Ok((x, y))
+}
+
+/// Animate displacement from the previous layout position into the new one.
+/// The caller measures both positions after layout; neither animation changes DesiredSize.
+pub fn animate_layout_displacement(
+    native: windows_core::IInspectable,
+    x: f32,
+    y: f32,
+    duration: Duration,
+) -> Result<()> {
+    let ui = native.cast::<UIElement>()?;
+    let visual = ElementCompositionPreview::GetElementVisual(&ui)?;
+    let offset = visual.cast::<IVisual>()?.Offset()?;
+    let compositor = visual
+        .cast::<ICompositionObject>()?
+        .Compositor()?
+        .cast::<ICompositor>()?;
+    let easing = composition_easing(&compositor, Easing::Fluent)?;
+    for (property, base, delta) in [("Offset.X", offset.x, x), ("Offset.Y", offset.y, y)] {
+        let animation = compositor.CreateScalarKeyFrameAnimation()?;
+        animation
+            .cast::<IKeyFrameAnimation>()?
+            .SetDuration(duration_to_timespan(duration))?;
+        let keyframes = animation.cast::<IScalarKeyFrameAnimation>()?;
+        keyframes.InsertKeyFrameWithEasingFunction(0.0, base + delta, &easing)?;
+        keyframes.InsertKeyFrameWithEasingFunction(1.0, base, &easing)?;
+        visual
+            .cast::<ICompositionObject>()?
+            .StartAnimation(property, &animation.cast::<CompositionAnimation>()?)?;
+    }
+    Ok(())
+}
+
+/// Queue a callback after XAML has arranged the newly reconciled tree.
+pub fn after_layout(f: impl Fn() + 'static) -> Result<()> {
+    DispatcherQueue::GetForCurrentThread()?.TryEnqueueWithPriority(
+        DispatcherQueuePriority::Low,
+        &DispatcherQueueHandler::new(f),
+    )?;
+    Ok(())
+}
+
+/// Update a retained layout host without reconciling its children. XAML layout
+/// and pointer hit testing follow the width on the next compositor frame.
+pub fn set_layout_width(native: windows_core::IInspectable, width: f64) -> Result<()> {
+    native.cast::<IFrameworkElement>()?.SetWidth(width.max(1.0))
+}

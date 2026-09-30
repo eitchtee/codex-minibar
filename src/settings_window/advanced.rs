@@ -114,6 +114,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
         show_usage_values: set_show_usage_values,
         show_usage_pace: set_show_usage_pace,
         compact_usage_cards: set_compact_usage_cards,
+        popup_two_columns: ctx.set_popup_two_columns.clone(),
         popup_visibility: set_popup_visibility,
         discovered_popup_bricks: set_discovered_popup_bricks,
         show_total_spend_on_all_tab: set_show_total_spend_on_all_tab,

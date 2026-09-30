@@ -66,7 +66,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             .updates
             .available_update()
             .map(|update| update.version),
-        ..UiState::default()
+        ..UiState::popup_layout_from_settings(&state.settings)
     });
     cx.use_effect(
         (
@@ -278,6 +278,33 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
     let show_provider_tabs = show_provider_icon_tabs;
     let show_footer_tabs = true;
     let selected_view = pager.current;
+    let two_columns = ui.popup_two_columns && popup::wide_layout_available();
+    let wide_view = selected_view.uses_two_columns(two_columns);
+    let home_layout = (
+        selected_view,
+        two_columns,
+        popup_order_key(&ui.popup_order),
+        ui.popup_right_column
+            .as_deref()
+            .map_or_else(|| "auto".into(), popup_order_key),
+    );
+    let previous_home_layout = cx.use_ref(home_layout.clone());
+    if previous_home_layout.get_cloned() != home_layout {
+        if selected_view == PopupView::Home && previous_home_layout.borrow().0 == PopupView::Home {
+            remember_widget_positions();
+        }
+        previous_home_layout.set(home_layout);
+    }
+    cx.use_effect((wide_view, two_columns, ui.animations_enabled), move || {
+        popup::set_client_width_dip(
+            if wide_view {
+                popup::POPUP_WIDE_WIDTH
+            } else {
+                popup::POPUP_WIDTH
+            },
+            two_columns,
+        );
+    });
     if selected_view == PopupView::Usage {
         dismiss_activity_page_tip();
     }
@@ -337,7 +364,8 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
     let overview_snapshot = usage_snapshots::memoize(cx, snapshot_inputs, overview_query, || {
         build_overview_snapshot(&limits, &enabled_spend, overview_metric, overview_range)
     });
-    let can_reorder_widgets = selected_view == PopupView::Home && all_tab_widgets.len() > 1;
+    let can_reorder_widgets =
+        selected_view == PopupView::Home && (all_tab_widgets.len() > 1 || two_columns);
     let forced_reset_count = upcoming_forced_reset_count(&forced_resets);
     let build_body = |view: PopupView, retain_disabled_detail: bool| {
         let surface = if view == PopupView::Home {
@@ -401,8 +429,15 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 ui.grok_enabled,
                 ui.kiro_enabled,
             );
+            let right_column = home_right_column(&ui, show_total_spend);
+            let mut columns: [Vec<Element>; 2] = [Vec::new(), Vec::new()];
             for (index, widget) in widgets.into_iter().enumerate() {
-                let is_first = index == 0 && !has_preceding_section;
+                let column = usize::from(right_column.contains(&widget));
+                let is_first = if two_columns {
+                    columns[column].is_empty()
+                } else {
+                    index == 0 && !has_preceding_section
+                };
                 let section = match widget {
                     PopupWidgetKind::TotalSpend => {
                         let on_period = {
@@ -524,6 +559,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                     with_widget_drop_target(
                         widget,
                         section,
+                        two_columns.then_some(column),
                         &widget_drag,
                         set_widget_drag.clone(),
                         settings_tx.clone(),
@@ -533,8 +569,42 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 } else {
                     section
                 };
-                body.push(section);
+                if two_columns {
+                    columns[column].push(section);
+                } else {
+                    body.push(section);
+                }
                 has_preceding_section = true;
+            }
+            if two_columns {
+                let [left, right] = columns;
+                body.push(
+                    grid([
+                        widget_column(
+                            0,
+                            left,
+                            &widget_drag,
+                            set_widget_drag.clone(),
+                            settings_tx.clone(),
+                            set_ui.clone(),
+                            ui.clone(),
+                        ),
+                        widget_column(
+                            1,
+                            right,
+                            &widget_drag,
+                            set_widget_drag.clone(),
+                            settings_tx.clone(),
+                            set_ui.clone(),
+                            ui.clone(),
+                        ),
+                    ])
+                    .columns([GridLength::Star(1.0), GridLength::Star(1.0)])
+                    .column_spacing(12.0)
+                    .horizontal_alignment(HorizontalAlignment::Stretch)
+                    .with_key("home-two-columns")
+                    .into(),
+                );
             }
         } else if view == PopupView::Usage {
             let usage_recalculating = ui
@@ -543,6 +613,7 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
                 .any(|(_, kind)| *kind == RequestKind::Usage);
             body.push(crate::popup_usage::overview_page(
                 &overview_snapshot,
+                two_columns,
                 overview_metric,
                 overview_range,
                 overview_breakdown,
@@ -1048,8 +1119,20 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             color_scheme as i32,
             view,
         );
+        let body_layout_key = format!(
+            "{body_layout_key}-two={two_columns}-right={}",
+            ui.popup_right_column
+                .as_deref()
+                .map_or_else(|| "auto".into(), popup_order_key)
+        );
+        let page_width = if view.uses_two_columns(two_columns) {
+            popup::POPUP_WIDE_WIDTH
+        } else {
+            popup::POPUP_WIDTH
+        };
         let mut content = vstack(body)
             .spacing(6.0)
+            .width(f64::from(page_width) - border_inset * 2.0)
             .padding(Thickness {
                 left: 16.0,
                 top: 16.0,
@@ -1084,6 +1167,16 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             });
         }
         if from_x != to_x {
+            // Fade in parallel with the full-width slide so transparent cards
+            // do not expose both pages throughout a Home/Usage transition.
+            content = content.animate(AnimationConfig {
+                easing: Easing::Fluent,
+                ..if measure_height {
+                    AnimationConfig::fade_in(PAGER_ANIMATION_DURATION)
+                } else {
+                    AnimationConfig::fade_out(PAGER_ANIMATION_DURATION)
+                }
+            });
             content.mounted = Some(Callback::new(move |native: Option<_>| {
                 if let Some(native) = native
                     && let Err(error) = animate_translation_x(
@@ -1137,33 +1230,39 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .vertical_alignment(VerticalAlignment::Stretch)
             .grid_row(0)
+            // Retain the current native page when its outgoing sibling is removed.
+            .with_key(popup_page_host_key(role))
             .into()
     };
 
+    let slide_width = pager.outgoing.map_or(popup::POPUP_WIDTH, |from| {
+        pager_slide_width(from, selected_view, two_columns)
+    });
     let incoming_from = if page_animations_enabled {
         pager
             .outgoing
-            .map_or(0.0, |_| pager.direction.incoming_offset())
+            .map_or(0.0, |_| pager.direction.incoming_offset(slide_width))
     } else {
         0.0
     };
     let current_page = build_page(body, selected_view, "current", incoming_from, 0.0, true);
-    let outgoing_page = match (pager.outgoing, outgoing_body) {
-        (Some(view), Some(body)) => build_page(
+    let mut pages = Vec::with_capacity(2);
+    if let (Some(view), Some(body)) = (pager.outgoing, outgoing_body) {
+        pages.push(build_page(
             body,
             view,
             "outgoing",
             0.0,
             if page_animations_enabled {
-                pager.direction.outgoing_offset()
+                pager.direction.outgoing_offset(slide_width)
             } else {
                 0.0
             },
             false,
-        ),
-        _ => Element::Empty,
-    };
-    let page_viewport = grid((outgoing_page, current_page))
+        ));
+    }
+    pages.push(current_page);
+    let page_viewport = grid(pages)
         .horizontal_alignment(HorizontalAlignment::Stretch)
         .vertical_alignment(VerticalAlignment::Stretch)
         .grid_row(0);
@@ -1236,17 +1335,32 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
     .padding(Thickness::uniform(border_inset))
     .corner_radius(window_corner_radius)
     .background(Color::transparent())
-    .width(window_size.width.max(1.0))
     .height(surface_height)
     .horizontal_alignment(HorizontalAlignment::Stretch)
     .vertical_alignment(VerticalAlignment::Bottom);
+
+    // Drive only native layout width on the compositor clock. Page bodies keep
+    // their fixed target width; the footer grid follows every spring sample.
+    // No per-frame reconciliation or remounting of swap-chain icon hosts.
+    let mut surface_host = vstack((popup_surface,))
+        .width(f64::from(popup::animated_surface_width_dip()))
+        .height(surface_height)
+        .horizontal_alignment(HorizontalAlignment::Right)
+        .vertical_alignment(VerticalAlignment::Bottom)
+        .with_key("popup-surface-width-host");
+    surface_host.mounted = Some(Callback::new(|native: Option<_>| {
+        if let Some(native) = native {
+            popup::register_surface_width_mount(native);
+        }
+    }));
+    surface_host.unmounted = Some(Callback::new(popup::clear_surface_width_mount));
 
     // The native host is deliberately fixed-height while the visible capsule
     // changes size. This gives the footer a real bottom-aligned parent and
     // keeps any transition-only host area painted instead of exposing a black
     // client clear. The GDI region still limits what reaches the desktop.
     border(
-        grid((background, popup_surface))
+        grid((background, surface_host))
             .rows([GridLength::Star(1.0)])
             .columns([GridLength::Star(1.0)])
             .horizontal_alignment(HorizontalAlignment::Stretch)

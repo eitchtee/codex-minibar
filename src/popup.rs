@@ -3,7 +3,7 @@
 //! The WinUI window is parked off-screen instead of being closed. Closing it
 //! would trigger `windows-reactor`'s `Closed -> process::exit` handler.
 //!
-//! Width is fixed; height is updated via [`set_client_height_dip`] when popup
+//! Width and height adapt via [`set_client_width_dip`] and [`set_client_height_dip`] when popup
 //! content changes. Positioning still never fights WinUI layout — we only
 //! move (and occasionally resize) the HWND.
 
@@ -35,7 +35,7 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::MARGINS,
-        HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+        HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI},
         Input::KeyboardAndMouse::{
             GetAsyncKeyState, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
         },
@@ -63,6 +63,167 @@ const DWMNCRP_DISABLED: u32 = 1;
 const SHOW_GRACE_MS: i64 = 200;
 /// Popup client width in DIP — fixed; height adapts to content.
 pub const POPUP_WIDTH: i32 = 380;
+/// Two compact content columns, shared outer padding, and a 12 DIP gutter.
+pub const POPUP_WIDE_WIDTH: i32 = POPUP_WIDTH * 2 - 34 + 12;
+static CLIENT_WIDTH_DIP: AtomicI32 = AtomicI32::new(POPUP_WIDTH);
+static HOST_CLIENT_WIDTH_DIP: AtomicI32 = AtomicI32::new(POPUP_WIDTH);
+/// Native width belongs to the layout mode, independently of the selected tab.
+static TARGET_HOST_WIDTH_DIP: AtomicI32 = AtomicI32::new(POPUP_WIDTH);
+
+pub(crate) const fn native_host_width_for_layout(two_columns: bool) -> i32 {
+    if two_columns {
+        POPUP_WIDE_WIDTH
+    } else {
+        POPUP_WIDTH
+    }
+}
+
+fn target_host_width_dip() -> i32 {
+    TARGET_HOST_WIDTH_DIP.load(Ordering::SeqCst)
+}
+static ANIMATED_SURFACE_WIDTH_DIP: AtomicI32 = AtomicI32::new(POPUP_WIDTH);
+
+/// Screen origin in DIPs for Home's before/after layout measurements.
+pub(crate) fn window_origin_dip() -> (f32, f32) {
+    let Some(hwnd) = current_hwnd() else {
+        return (0.0, 0.0);
+    };
+    let rect = window_rect(hwnd);
+    let scale = 96.0 / host_dpi(96) as f32;
+    (rect.left as f32 * scale, rect.top as f32 * scale)
+}
+
+/// Current visible width; the retained XAML shell and GDI region share this
+/// exact spring sample so footer tabs move with the edge instead of snapping.
+pub fn animated_surface_width_dip() -> i32 {
+    ANIMATED_SURFACE_WIDTH_DIP.load(Ordering::SeqCst)
+}
+
+pub(crate) fn register_surface_width_mount(native: windows_core::IInspectable) {
+    let _ =
+        windows_reactor::set_layout_width(native.clone(), f64::from(animated_surface_width_dip()));
+    POPUP_SURFACE_WIDTH_MOUNT.with(|slot| *slot.borrow_mut() = Some(native));
+}
+
+pub(crate) fn clear_surface_width_mount(native: Option<windows_core::IInspectable>) {
+    POPUP_SURFACE_WIDTH_MOUNT.with(|slot| {
+        if slot.borrow().as_ref() == native.as_ref() {
+            *slot.borrow_mut() = None;
+        }
+    });
+}
+
+fn apply_surface_width_dip(width: i32) {
+    ANIMATED_SURFACE_WIDTH_DIP.store(width, Ordering::SeqCst);
+    POPUP_SURFACE_WIDTH_MOUNT.with(|slot| {
+        if let Some(native) = slot.borrow().as_ref() {
+            let _ = windows_reactor::set_layout_width(native.clone(), f64::from(width));
+        }
+    });
+}
+
+pub fn client_width_dip() -> i32 {
+    CLIENT_WIDTH_DIP.load(Ordering::SeqCst)
+}
+
+pub fn wide_layout_available() -> bool {
+    let monitor = loaded_monitor();
+    monitor.right <= monitor.left
+        || f64::from(monitor.right - monitor.left - EDGE_MARGIN * 2) * 96.0
+            / f64::from(host_dpi(96))
+            >= f64::from(POPUP_WIDE_WIDTH)
+}
+
+/// Retarget the horizontal spring without discarding its velocity. The native
+/// host grows once and clips a right-aligned capsule, just like vertical motion.
+pub fn set_client_width_dip(width: i32, keep_wide_host: bool) {
+    let width = width.clamp(POPUP_WIDTH, POPUP_WIDE_WIDTH);
+    let host_width = native_host_width_for_layout(keep_wide_host);
+    TARGET_HOST_WIDTH_DIP.store(host_width, Ordering::SeqCst);
+    // Reserve the wide island even when the current provider remains compact.
+    // Never shrink below the current clip during a layout-mode change.
+    resize_host_width_now(host_width.max(ANIMATED_SURFACE_WIDTH_DIP.load(Ordering::SeqCst)));
+    let previous_target = CLIENT_WIDTH_DIP.swap(width, Ordering::SeqCst);
+    if previous_target == width && (animations_enabled() || popup_motion().width.is_none()) {
+        return;
+    }
+    if !is_visible() || !animations_enabled() {
+        popup_motion().width = None;
+        apply_surface_width_dip(width);
+        resize_host_width_now(host_width);
+        if is_visible()
+            && let Some(hwnd) = current_hwnd()
+        {
+            apply_surface_window_region(
+                hwnd,
+                f64::from(animated_surface_height_dip()),
+                Some(loaded_monitor()),
+            );
+        }
+        windows_reactor::request_ui_rerender_on_ui_thread();
+        stop_rendering_if_idle();
+        return;
+    }
+    let applied = ANIMATED_SURFACE_WIDTH_DIP.load(Ordering::SeqCst);
+    let mut motion = popup_motion();
+    if let Some(spring) = motion.width.as_mut() {
+        spring.target_dip = f64::from(width);
+    } else {
+        motion.width = Some(HeightMotion {
+            position_dip: f64::from(applied),
+            velocity_dip_per_second: 0.0,
+            target_dip: f64::from(width),
+            last_sample: Instant::now(),
+        });
+    }
+    drop(motion);
+    windows_reactor::request_ui_rerender_on_ui_thread();
+    ensure_rendering();
+}
+
+fn resize_host_width_now(width: i32) {
+    let previous = HOST_CLIENT_WIDTH_DIP.swap(width, Ordering::SeqCst);
+    if previous == width {
+        return;
+    }
+    let height = HOST_CLIENT_HEIGHT_DIP.load(Ordering::SeqCst);
+    let hwnd = current_hwnd();
+    POPUP_HOST.with(|slot| {
+        if let Some(host) = slot.borrow().as_ref() {
+            host.sync_render_size(f64::from(width), f64::from(height));
+            if let Some(hwnd) = hwnd.filter(|_| is_visible()) {
+                let rect = window_rect(hwnd);
+                let dpi_scale = f64::from(host_dpi(96)) / 96.0;
+                let delta = (f64::from(width) * dpi_scale).round() as i32
+                    - (f64::from(previous) * dpi_scale).round() as i32;
+                // Preserve the right edge during a resize, including an opening slide.
+                {
+                    let mut motion = popup_motion();
+                    if let Some(window) = motion.window.as_mut() {
+                        window.from_x -= delta;
+                        if window.kind == WindowMotionKind::Opening {
+                            window.to_x -= delta;
+                        }
+                    }
+                }
+                let _ = host.move_and_resize_bottom_pinned(
+                    rect.left - delta,
+                    pinned_bottom_px(),
+                    f64::from(width),
+                    f64::from(height),
+                );
+                apply_surface_window_region(
+                    hwnd,
+                    f64::from(animated_surface_height_dip()),
+                    Some(loaded_monitor()),
+                );
+            } else {
+                let _ = host.resize_client(f64::from(width), f64::from(height));
+            }
+        }
+    });
+    windows_reactor::request_ui_rerender_on_ui_thread();
+}
 /// Layout pieces used by [`height_for`] (must stay in sync with `popup_window`).
 const LIMIT_CARD_HEIGHT: i32 = 82;
 const BODY_PAD_Y: i32 = 36; // top 16 + bottom 20
@@ -136,6 +297,7 @@ static PINNED_WIN_BOTTOM_PX: AtomicI32 = AtomicI32::new(0);
 
 thread_local! {
     static POPUP_HOST: RefCell<Option<Rc<ReactorHost>>> = const { RefCell::new(None) };
+    static POPUP_SURFACE_WIDTH_MOUNT: RefCell<Option<windows_core::IInspectable>> = const { RefCell::new(None) };
     static POPUP_BACKGROUND_MOUNT: RefCell<Option<windows_core::IInspectable>> =
         const { RefCell::new(None) };
     static POPUP_RENDERING: RefCell<Option<Rendering>> = const { RefCell::new(None) };
@@ -167,6 +329,7 @@ struct HeightMotion {
 struct PopupMotion {
     window: Option<WindowMotion>,
     height: Option<HeightMotion>,
+    width: Option<HeightMotion>,
 }
 
 // Tray events are pumped on a worker thread while CompositionTarget.Rendering
@@ -176,6 +339,7 @@ struct PopupMotion {
 static POPUP_MOTION: Mutex<PopupMotion> = Mutex::new(PopupMotion {
     window: None,
     height: None,
+    width: None,
 });
 
 fn popup_motion() -> MutexGuard<'static, PopupMotion> {
@@ -497,7 +661,9 @@ fn park(hwnd: HWND) {
         let mut motion = popup_motion();
         motion.window = None;
         motion.height = None;
+        motion.width = None;
     }
+    apply_surface_width_dip(client_width_dip());
     PINNED_WIN_BOTTOM_PX.store(0, Ordering::SeqCst);
     stop_rendering_if_idle();
     unsafe {
@@ -613,7 +779,7 @@ fn ensure_rendering() {
 fn stop_rendering_if_idle() {
     let idle = {
         let motion = popup_motion();
-        motion.window.is_none() && motion.height.is_none()
+        motion.window.is_none() && motion.height.is_none() && motion.width.is_none()
     };
     if idle {
         POPUP_RENDERING.with(|slot| {
@@ -689,6 +855,8 @@ pub fn set_client_height_dip(height_dip: i32) {
 
 /// Re-apply size constraints after Win32 chrome is stripped (stale NC metrics).
 pub fn sync_host_constraints() {
+    HOST_CLIENT_WIDTH_DIP.store(target_host_width_dip(), Ordering::SeqCst);
+    apply_surface_width_dip(client_width_dip());
     let height = CLIENT_HEIGHT_DIP
         .load(Ordering::SeqCst)
         .clamp(80, max_client_height_dip());
@@ -698,8 +866,12 @@ pub fn sync_host_constraints() {
     ANIMATED_SURFACE_HEIGHT_DIP.store(height, Ordering::SeqCst);
     POPUP_HOST.with(|slot| {
         if let Some(host) = slot.borrow().as_ref() {
+            let _ = host.relax_width_constraints(f64::from(POPUP_WIDE_WIDTH));
             let _ = host.relax_height_constraints(f64::from(max_client_height_dip()));
-            let _ = host.resize_client(f64::from(POPUP_WIDTH), f64::from(height));
+            let _ = host.resize_client(
+                f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
+                f64::from(height),
+            );
         }
     });
 }
@@ -712,8 +884,12 @@ fn apply_client_height_immediately(height_dip: i32) {
         HOST_CLIENT_HEIGHT_DIP.store(height_dip, Ordering::SeqCst);
         POPUP_HOST.with(|slot| {
             if let Some(host) = slot.borrow().as_ref() {
+                let _ = host.relax_width_constraints(f64::from(POPUP_WIDE_WIDTH));
                 let _ = host.relax_height_constraints(f64::from(max_client_height_dip()));
-                let _ = host.resize_client(f64::from(POPUP_WIDTH), f64::from(height_dip));
+                let _ = host.resize_client(
+                    f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
+                    f64::from(height_dip),
+                );
             }
         });
         return;
@@ -751,16 +927,20 @@ fn resize_host_height_now(hwnd: HWND, height_dip: i32) {
 
     POPUP_HOST.with(|slot| {
         if let Some(host) = slot.borrow().as_ref() {
+            let _ = host.relax_width_constraints(f64::from(POPUP_WIDE_WIDTH));
             let _ = host.relax_height_constraints(f64::from(max_client_height_dip()));
             // Set the island target before changing the HWND. Both operations
             // run on the UI thread, so the next compositor frame sees one
             // geometry target instead of exposing a black clear while XAML
             // catches up with native window resizing.
-            host.sync_render_size(f64::from(POPUP_WIDTH), f64::from(height_dip));
+            host.sync_render_size(
+                f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
+                f64::from(height_dip),
+            );
             let _ = host.move_and_resize_bottom_pinned(
                 win.left,
                 seam,
-                f64::from(POPUP_WIDTH),
+                f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
                 f64::from(height_dip),
             );
         }
@@ -775,8 +955,14 @@ fn prepare_hidden_host_height(height_dip: i32) {
     HOST_CLIENT_HEIGHT_DIP.store(height_dip, Ordering::SeqCst);
     POPUP_HOST.with(|slot| {
         if let Some(host) = slot.borrow().as_ref() {
-            host.sync_render_size(f64::from(POPUP_WIDTH), f64::from(height_dip));
-            let _ = host.resize_client(f64::from(POPUP_WIDTH), f64::from(height_dip));
+            host.sync_render_size(
+                f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
+                f64::from(height_dip),
+            );
+            let _ = host.resize_client(
+                f64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)),
+                f64::from(height_dip),
+            );
         }
     });
 }
@@ -852,7 +1038,8 @@ fn popup_pixel_size(hwnd: HWND, monitor: HMONITOR) -> (i32, i32) {
 
     let dpi = host_dpi(monitor_dpi(monitor));
     let height_dip = HOST_CLIENT_HEIGHT_DIP.load(Ordering::SeqCst);
-    let expected_w = (i64::from(POPUP_WIDTH) * i64::from(dpi) / 96) as i32;
+    let expected_w =
+        (i64::from(HOST_CLIENT_WIDTH_DIP.load(Ordering::SeqCst)) * i64::from(dpi) / 96) as i32;
     let expected_h = (i64::from(height_dip) * i64::from(dpi) / 96) as i32;
 
     (
@@ -904,6 +1091,12 @@ fn apply_surface_window_region_for_rect(
         .round()
         .clamp(1.0, f64::from(height)) as i32;
     let surface_top = height.saturating_sub(surface_height);
+    let surface_width = (f64::from(ANIMATED_SURFACE_WIDTH_DIP.load(Ordering::SeqCst))
+        * f64::from(host_dpi(96))
+        / 96.0)
+        .round()
+        .clamp(1.0, f64::from(width)) as i32;
+    let surface_left = width.saturating_sub(surface_width);
     let radius = CORNER_RADIUS_PX.load(Ordering::SeqCst).max(0);
     let arc = radius.saturating_mul(2);
 
@@ -912,9 +1105,9 @@ fn apply_surface_window_region_for_rect(
         // to produce a malformed corner. A 0 DIP radius is an actual square,
         // so use a rectangular region explicitly.
         let shape = if radius == 0 {
-            CreateRectRgn(0, surface_top, width + 1, height + 1)
+            CreateRectRgn(surface_left, surface_top, width + 1, height + 1)
         } else {
-            CreateRoundRectRgn(0, surface_top, width + 1, height + 1, arc, arc)
+            CreateRoundRectRgn(surface_left, surface_top, width + 1, height + 1, arc, arc)
         };
         if shape.is_null() {
             return;
@@ -953,7 +1146,37 @@ fn animation_frame() {
     let Some(hwnd) = current_hwnd() else {
         return;
     };
+    if !animations_enabled() {
+        let window = {
+            let mut motion = popup_motion();
+            motion.width = None;
+            motion.height = None;
+            motion.window.take()
+        };
+        apply_surface_width_dip(client_width_dip());
+        ANIMATED_SURFACE_HEIGHT_DIP
+            .store(CLIENT_HEIGHT_DIP.load(Ordering::SeqCst), Ordering::SeqCst);
+        resize_host_width_now(target_host_width_dip());
+        if let Some(window) = window {
+            let rect = window_rect(hwnd);
+            move_hwnd(hwnd, window.to_x, rect.top);
+            match window.kind {
+                WindowMotionKind::Opening => finish_opening(hwnd),
+                WindowMotionKind::Closing => park(hwnd),
+            }
+        } else {
+            apply_surface_window_region(
+                hwnd,
+                f64::from(animated_surface_height_dip()),
+                Some(loaded_monitor()),
+            );
+        }
+        stop_rendering_if_idle();
+        return;
+    }
     let now = Instant::now();
+    let mut width_frame = None;
+    let mut width_finished = None;
     let mut height_frame = None;
     let mut height_finished = None;
     let mut window_frame = None;
@@ -962,6 +1185,16 @@ fn animation_frame() {
 
     {
         let mut motion = popup_motion();
+        if let Some(width) = motion.width.as_mut() {
+            let (value, settled) = step_height_spring(width, now);
+            width_frame = Some(value);
+            if settled {
+                width_finished = Some(width.target_dip.round() as i32);
+            }
+        }
+        if width_finished.is_some() {
+            motion.width = None;
+        }
         let mut finish_height = None;
         if let Some(height) = motion.height.as_mut() {
             let (value, settled) = step_height_spring(height, now);
@@ -991,6 +1224,19 @@ fn animation_frame() {
         }
     }
 
+    if let Some(width) = width_frame {
+        apply_surface_width_dip(width);
+        apply_surface_window_region(
+            hwnd,
+            f64::from(animated_surface_height_dip()),
+            Some(loaded_monitor()),
+        );
+    }
+    if width_finished.is_some() {
+        // Tab changes only animate the region. In two-column mode the target
+        // stays wide, so settling never resizes/reflows the native island.
+        resize_host_width_now(target_host_width_dip());
+    }
     if let Some(height) = height_frame {
         apply_animated_client_height(hwnd, height);
     }
@@ -1344,7 +1590,7 @@ pub fn keep_on_monitor() {
     // re-entrancy deadlocks.
     let animating = {
         let motion = popup_motion();
-        motion.window.is_some() || motion.height.is_some()
+        motion.window.is_some() || motion.height.is_some() || motion.width.is_some()
     };
     if !is_visible() || animating {
         return;
@@ -1374,6 +1620,9 @@ pub fn show_near(anchor_x: i32, anchor_y: i32) {
 
     let dpi = monitor_dpi(hmonitor);
     update_height_limit_for_monitor(monitor, dpi);
+    // Monitor width may change while its height stays identical. Re-evaluate
+    // the wide-layout fallback before showing or measuring the parked popup.
+    windows_reactor::request_ui_rerender_on_ui_thread();
     // WinUI can leave a hidden AppWindow at the presenter's maximum height while
     // the reactor still holds the correct content target. Reapply that target
     // before reading native bounds; otherwise popup_pixel_size preserves the stale
@@ -1501,6 +1750,26 @@ fn any_mouse_button_down() -> bool {
     }
 }
 
+/// Hit testing uses the visible capsule, not the transparent reserved host.
+fn visible_surface_bounds(window: RECT, width_dip: i32, height_dip: i32, dpi: u32) -> RECT {
+    let scale = f64::from(dpi.max(1)) / 96.0;
+    let width = (f64::from(width_dip) * scale).round() as i32;
+    let height = (f64::from(height_dip) * scale).round() as i32;
+    RECT {
+        left: window.right - width.clamp(1, (window.right - window.left).max(1)),
+        top: window.bottom - height.clamp(1, (window.bottom - window.top).max(1)),
+        right: window.right,
+        bottom: window.bottom,
+    }
+}
+
+fn point_outside_surface(cursor: POINT, surface: RECT) -> bool {
+    cursor.x < surface.left
+        || cursor.x >= surface.right
+        || cursor.y < surface.top
+        || cursor.y >= surface.bottom
+}
+
 fn cursor_outside_hwnd(hwnd: HWND) -> bool {
     unsafe {
         let mut cursor = POINT { x: 0, y: 0 };
@@ -1510,12 +1779,22 @@ fn cursor_outside_hwnd(hwnd: HWND) -> bool {
             right: 0,
             bottom: 0,
         };
-        GetCursorPos(&mut cursor);
-        GetWindowRect(hwnd, &mut popup);
-        cursor.x < popup.left
-            || cursor.x >= popup.right
-            || cursor.y < popup.top
-            || cursor.y >= popup.bottom
+        if GetCursorPos(&mut cursor) == 0 || GetWindowRect(hwnd, &mut popup) == 0 {
+            return false;
+        }
+        // This runs on the tray worker: POPUP_HOST is UI-thread-local there.
+        // Read DPI from the HWND instead of host_dpi(96)'s worker fallback.
+        let dpi = GetDpiForWindow(hwnd);
+        if dpi == 0 {
+            return false;
+        }
+        let popup = visible_surface_bounds(
+            popup,
+            ANIMATED_SURFACE_WIDTH_DIP.load(Ordering::SeqCst),
+            animated_surface_height_dip(),
+            dpi,
+        );
+        point_outside_surface(cursor, popup)
     }
 }
 
@@ -1576,6 +1855,101 @@ mod tests {
         assert_eq!(lerp_i32(300, 700, 0.0), 300);
         assert_eq!(lerp_i32(300, 700, 1.0), 700);
         assert_eq!(lerp_i32(700, 300, 0.5), 500);
+    }
+
+    #[test]
+    fn scaled_compact_footer_click_is_inside_before_and_after_home_expands() {
+        for dpi in [96, 120, 144, 168, 192] {
+            let scale = f64::from(dpi) / 96.0;
+            let window = RECT {
+                left: 100,
+                top: 200,
+                right: 100 + (f64::from(POPUP_WIDE_WIDTH) * scale).round() as i32,
+                bottom: 1200,
+            };
+            let compact = visible_surface_bounds(window, POPUP_WIDTH, 300, dpi);
+            let home = POINT {
+                x: compact.left + (32.0 * scale).round() as i32,
+                y: compact.bottom - (24.0 * scale).round() as i32,
+            };
+            assert!(!point_outside_surface(home, compact));
+            let expanded = visible_surface_bounds(window, POPUP_WIDE_WIDTH, 600, dpi);
+            assert!(!point_outside_surface(home, expanded));
+            assert!(point_outside_surface(
+                POINT {
+                    x: compact.left - 1,
+                    y: home.y
+                },
+                compact
+            ));
+            if dpi > 96 {
+                let wrong_worker_fallback = visible_surface_bounds(window, POPUP_WIDTH, 300, 96);
+                assert!(point_outside_surface(home, wrong_worker_fallback));
+            }
+        }
+    }
+
+    #[test]
+    fn compact_surface_excludes_reserved_host_from_outside_click_bounds() {
+        for dpi in [96, 120, 144, 192] {
+            let scale = f64::from(dpi) / 96.0;
+            let window = RECT {
+                left: 100,
+                top: 200,
+                right: 100 + (f64::from(POPUP_WIDE_WIDTH) * scale).round() as i32,
+                bottom: 200 + (1000.0 * scale).round() as i32,
+            };
+            let compact = visible_surface_bounds(window, POPUP_WIDTH, 300, dpi);
+            assert!(compact.left > window.left);
+            assert!(compact.top > window.top);
+            assert_eq!(compact.right, window.right);
+            assert_eq!(compact.bottom, window.bottom);
+            assert_eq!(
+                compact.right - compact.left,
+                (f64::from(POPUP_WIDTH) * scale).round() as i32
+            );
+            let wide = visible_surface_bounds(window, POPUP_WIDE_WIDTH, 300, dpi);
+            assert_eq!(wide.left, window.left);
+        }
+    }
+
+    #[test]
+    fn width_spring_expands_collapses_and_retargets_mid_flight() {
+        let started = Instant::now();
+        for (from, to) in [
+            (POPUP_WIDTH, POPUP_WIDE_WIDTH),
+            (POPUP_WIDE_WIDTH, POPUP_WIDTH),
+        ] {
+            let mut motion = HeightMotion {
+                position_dip: f64::from(from),
+                velocity_dip_per_second: 0.0,
+                target_dip: f64::from(to),
+                last_sample: started,
+            };
+            for frame in 1..=120 {
+                let (value, _) =
+                    step_height_spring(&mut motion, started + Duration::from_millis(frame * 16));
+                assert!((POPUP_WIDTH..=POPUP_WIDE_WIDTH).contains(&value));
+            }
+            assert_eq!(motion.position_dip, f64::from(to));
+        }
+        let mut motion = HeightMotion {
+            position_dip: f64::from(POPUP_WIDTH),
+            velocity_dip_per_second: 0.0,
+            target_dip: f64::from(POPUP_WIDE_WIDTH),
+            last_sample: started,
+        };
+        step_height_spring(&mut motion, started + Duration::from_millis(48));
+        let before = (motion.position_dip, motion.velocity_dip_per_second);
+        motion.target_dip = f64::from(POPUP_WIDTH);
+        assert_eq!(
+            (motion.position_dip, motion.velocity_dip_per_second),
+            before
+        );
+        for frame in 4..=140 {
+            step_height_spring(&mut motion, started + Duration::from_millis(frame * 16));
+        }
+        assert_eq!(motion.position_dip, f64::from(POPUP_WIDTH));
     }
 
     #[test]

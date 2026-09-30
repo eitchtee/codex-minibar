@@ -884,8 +884,8 @@ fn pager_uses_reverse_motion_for_an_earlier_tab() {
     assert_eq!(state.outgoing, Some(PopupView::Cursor));
     assert_eq!(state.current, PopupView::Home);
     assert_eq!(state.direction, PagerDirection::Backward);
-    assert!(state.direction.outgoing_offset() > 0.0);
-    assert!(state.direction.incoming_offset() < 0.0);
+    assert!(state.direction.outgoing_offset(popup::POPUP_WIDTH) > 0.0);
+    assert!(state.direction.incoming_offset(popup::POPUP_WIDTH) < 0.0);
 }
 
 #[test]
@@ -1101,4 +1101,155 @@ fn openrouter_places_each_chart_inside_its_own_account_on_both_surfaces() {
         .daily
         .clear();
     assert_ne!(before, openrouter_accounts_strip_key(&limits));
+}
+
+#[test]
+fn two_columns_only_widen_home_and_usage_for_every_provider() {
+    for enabled in [false, true] {
+        assert_eq!(PopupView::Home.uses_two_columns(enabled), enabled);
+        assert_eq!(PopupView::Usage.uses_two_columns(enabled), enabled);
+        for provider in ProviderKind::ALL {
+            assert!(!PopupView::from_provider(provider).uses_two_columns(enabled));
+        }
+    }
+}
+
+#[test]
+fn home_auto_columns_balance_every_visible_provider_combination() {
+    for mask in 0..512 {
+        let mut ui = UiState {
+            codex_enabled: mask & 1 != 0,
+            claude_enabled: mask & 2 != 0,
+            cursor_enabled: mask & 4 != 0,
+            opencode_zen_enabled: mask & 8 != 0,
+            opencode_go_enabled: mask & 16 != 0,
+            openrouter_enabled: mask & 32 != 0,
+            antigravity_enabled: mask & 64 != 0,
+            grok_enabled: mask & 128 != 0,
+            kiro_enabled: mask & 256 != 0,
+            ..UiState::default()
+        };
+        for show_spend in [false, true] {
+            let widgets = visible_popup_widgets(
+                &ui.popup_order,
+                show_spend,
+                &ui.popup_visibility,
+                ui.codex_enabled,
+                ui.claude_enabled,
+                ui.cursor_enabled,
+                ui.opencode_zen_enabled,
+                ui.opencode_go_enabled,
+                ui.openrouter_enabled,
+                ui.antigravity_enabled,
+                ui.grok_enabled,
+                ui.kiro_enabled,
+            );
+            let right = home_right_column(&ui, show_spend);
+            assert_eq!(right.len(), widgets.len() / 2);
+            if let Some(first) = widgets.first() {
+                assert!(!right.contains(first));
+            }
+            assert!(right.iter().all(|widget| widgets.contains(widget)));
+        }
+        ui.popup_right_column = Some(vec![PopupWidgetKind::Codex, PopupWidgetKind::Kiro]);
+        assert_eq!(
+            home_right_column(&ui, false),
+            vec![PopupWidgetKind::Codex, PopupWidgetKind::Kiro]
+        );
+    }
+}
+
+#[test]
+fn pager_slides_clear_both_pages_for_every_compact_and_wide_view_pair() {
+    let views = std::iter::once(PopupView::Home)
+        .chain(std::iter::once(PopupView::Usage))
+        .chain(ProviderKind::ALL.into_iter().map(PopupView::from_provider))
+        .collect::<Vec<_>>();
+    for two_columns in [false, true] {
+        for &from in &views {
+            for &to in &views {
+                let width_for = |view: PopupView| {
+                    if view.uses_two_columns(two_columns) {
+                        popup::POPUP_WIDE_WIDTH
+                    } else {
+                        popup::POPUP_WIDTH
+                    }
+                };
+                let width = pager_slide_width(from, to, two_columns);
+                assert_eq!(width, width_for(from).max(width_for(to)));
+                for direction in [PagerDirection::Forward, PagerDirection::Backward] {
+                    let incoming = direction.incoming_offset(width);
+                    let outgoing = direction.outgoing_offset(width);
+                    assert_eq!(incoming, -outgoing);
+                    assert!(incoming.abs() >= width_for(to) as f32);
+                    assert!(outgoing.abs() >= width_for(from) as f32);
+                    assert_eq!(
+                        outgoing.is_sign_negative(),
+                        direction == PagerDirection::Forward
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn popup_startup_snapshots_restore_enabled_layout_and_saved_columns() {
+    for enabled in [false, true] {
+        for right in [
+            None,
+            Some(Vec::new()),
+            Some(vec![PopupWidgetKind::Codex, PopupWidgetKind::Kiro]),
+        ] {
+            let settings = Settings {
+                popup_two_columns: enabled,
+                popup_right_column: right.clone(),
+                ..Settings::default()
+            };
+            let saved = toml::to_string(&settings).unwrap();
+            let restored: Settings = toml::from_str(&saved).unwrap();
+            // Both startup snapshots use this shared seed, before any live settings push.
+            let ui = UiState::popup_layout_from_settings(&restored);
+            assert_eq!(ui.popup_two_columns, enabled);
+            assert_eq!(ui.popup_right_column, right);
+        }
+    }
+}
+
+#[test]
+fn pager_native_host_identity_survives_outgoing_page_removal() {
+    let current: Element = scroll_viewer(caption("provider"))
+        .with_key(popup_page_host_key("current"))
+        .into();
+    let outgoing: Element = scroll_viewer(caption("Home"))
+        .with_key(popup_page_host_key("outgoing"))
+        .into();
+    let during = grid(vec![outgoing, current.clone()]);
+    let after = grid(vec![current]);
+    assert_eq!(during.children[1].key(), after.children[0].key());
+    assert_ne!(during.children[0].key(), during.children[1].key());
+    assert!(during.children.iter().all(|page| page.key().is_some()));
+}
+
+#[test]
+fn two_column_native_host_stays_wide_on_every_compact_provider_page() {
+    for enabled in [false, true] {
+        let host_width = popup::native_host_width_for_layout(enabled);
+        assert_eq!(
+            host_width,
+            if enabled {
+                popup::POPUP_WIDE_WIDTH
+            } else {
+                popup::POPUP_WIDTH
+            }
+        );
+        for provider in ProviderKind::ALL {
+            let view = PopupView::from_provider(provider);
+            assert!(!view.uses_two_columns(enabled));
+            assert!(host_width >= popup::POPUP_WIDTH);
+            if enabled {
+                assert!(host_width > popup::POPUP_WIDTH);
+            }
+        }
+    }
 }

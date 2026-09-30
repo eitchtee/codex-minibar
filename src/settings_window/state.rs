@@ -44,6 +44,7 @@ pub(super) struct SettingsWindowState {
     pub(super) show_usage_values: SetState<bool>,
     pub(super) show_usage_pace: SetState<bool>,
     pub(super) compact_usage_cards: SetState<bool>,
+    pub(super) popup_two_columns: SetState<bool>,
     pub(super) popup_visibility: SetState<PopupVisibility>,
     pub(super) discovered_popup_bricks: SetState<BTreeMap<String, String>>,
     pub(super) show_total_spend_on_all_tab: SetState<bool>,
@@ -169,6 +170,7 @@ impl SettingsWindowState {
         self.show_usage_values.call(settings.show_usage_values);
         self.show_usage_pace.call(settings.show_usage_pace);
         self.compact_usage_cards.call(settings.compact_usage_cards);
+        self.popup_two_columns.call(settings.popup_two_columns);
         self.popup_visibility
             .call(settings.popup_visibility.clone());
         self.show_total_spend_on_all_tab
@@ -262,6 +264,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) show_usage_values: bool,
     pub(super) show_usage_pace: bool,
     pub(super) compact_usage_cards: bool,
+    pub(super) popup_two_columns: bool,
     pub(super) popup_visibility: &'a PopupVisibility,
     pub(super) discovered_popup_bricks: &'a BTreeMap<String, String>,
     pub(super) show_total_spend_on_all_tab: bool,
@@ -338,6 +341,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_show_usage_values: SetState<bool>,
     pub(super) set_show_usage_pace: SetState<bool>,
     pub(super) set_compact_usage_cards: SetState<bool>,
+    pub(super) set_popup_two_columns: SetState<bool>,
     pub(super) set_popup_visibility: SetState<PopupVisibility>,
     pub(super) set_discovered_popup_bricks: SetState<BTreeMap<String, String>>,
     pub(super) set_show_total_spend_on_all_tab: SetState<bool>,
