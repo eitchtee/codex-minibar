@@ -61,6 +61,17 @@ impl windows_core::RuntimeType for IPointerRoutedEventArgs {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IPointerRoutedEventArgs {
+    /// `PointerRoutedEventArgs.Pointer`, returned as its default interface.
+    pub fn Pointer(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Pointer)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::Type::from_abi(result__))
+        }
+    }
     pub fn GetCurrentPoint<P0>(&self, relativeto: P0) -> windows_core::Result<PointerPoint>
     where
         P0: windows_core::Param<UIElement>,
@@ -79,7 +90,10 @@ impl IPointerRoutedEventArgs {
 #[repr(C)]
 pub struct IPointerRoutedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    Pointer: usize,
+    pub Pointer: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     KeyModifiers: usize,
     Handled: usize,
     SetHandled: usize,
@@ -126,6 +140,28 @@ impl windows_core::RuntimeType for IUIElement {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IUIElement {
+    pub fn CapturePointer<P0>(&self, value: P0) -> windows_core::Result<bool>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CapturePointer)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn ReleasePointerCaptures(&self) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).ReleasePointerCaptures)(
+                windows_core::Interface::as_raw(self),
+            )
+            .ok()
+        }
+    }
     pub fn AddHandler<P0, P1>(
         &self,
         routedevent: P0,
@@ -370,9 +406,14 @@ pub struct IUIElement_Vtbl {
     RemoveBringIntoViewRequested: usize,
     Measure: usize,
     Arrange: usize,
-    CapturePointer: usize,
+    pub CapturePointer: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut bool,
+    ) -> windows_core::HRESULT,
     ReleasePointerCapture: usize,
-    ReleasePointerCaptures: usize,
+    pub ReleasePointerCaptures:
+        unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
     pub AddHandler: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,

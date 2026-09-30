@@ -1733,11 +1733,6 @@ pub(super) fn reset_credits_card(
         .on_tapped(move || {
             toggle_reset_card_reveal(reveal.clone(), set_reveal.clone(), click_key.clone())
         })
-        .tooltip(if expanded {
-            "Hide resets"
-        } else {
-            "Show all resets"
-        })
         .into()
     } else {
         border(header_content)
