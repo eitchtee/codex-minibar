@@ -1,12 +1,4 @@
 {
   "schema_version": 2,
-  "resets": [
-    {
-      "id": "forced-2026-10-03T17:00:00Z",
-      "type": "forced",
-      "source_url": "https://x.com/thsottiaux/status/2105843926221660585",
-      "label": "All paid ChatGPT",
-      "reset_at": "2026-10-03T17:00:00Z"
-    }
-  ]
+  "resets": []
 }
