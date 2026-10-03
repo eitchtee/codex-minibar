@@ -314,6 +314,9 @@ impl ProviderStore {
         provider: ProviderKind,
         history_days: u16,
     ) -> Result<UsageStatistics> {
+        if provider == ProviderKind::OpenRouter && self.load_openrouter_analytics()?.is_none() {
+            return Ok(UsageStatistics::default());
+        }
         if provider == ProviderKind::Codex && self.use_codex_account_data()? {
             return self.account_statistics_for(&codex_accounts::current_id(), history_days);
         }
@@ -359,7 +362,10 @@ impl ProviderStore {
         ] {
             tx.execute(&format!("DELETE FROM {table}"), [])?;
         }
-        tx.execute("DELETE FROM meta WHERE key = 'openrouter.analytics.v1'", [])?;
+        tx.execute(
+            "DELETE FROM meta WHERE key IN ('openrouter.analytics.v1', 'openrouter.analytics.v2', 'openrouter.analytics.v3')",
+            [],
+        )?;
         // Rebuild existing attribution after a clear; never reassign history.
         if let Some(mut state) = self.codex_attribution()? {
             state.ready = false;
@@ -1060,7 +1066,7 @@ impl ProviderStore {
         Ok(self
             .conn
             .query_row(
-                "SELECT value FROM meta WHERE key = 'openrouter.analytics.v1'",
+                "SELECT value FROM meta WHERE key = 'openrouter.analytics.v3'",
                 [],
                 |row| row.get(0),
             )
@@ -1077,7 +1083,7 @@ impl ProviderStore {
         let tx = self.conn.unchecked_transaction()?;
         self.replace_usage_daily_in_transaction(ProviderKind::OpenRouter, daily)?;
         self.replace_usage_model_daily_in_transaction(ProviderKind::OpenRouter, models)?;
-        self.set_meta("openrouter.analytics.v1", cache)?;
+        self.set_meta("openrouter.analytics.v3", cache)?;
         self.set_usage_fetched_at(ProviderKind::OpenRouter, at)?;
         tx.commit()?;
         Ok(())
@@ -1134,6 +1140,9 @@ impl ProviderStore {
         start: NaiveDate,
         end: NaiveDate,
     ) -> Result<Vec<(String, TokenUsage)>> {
+        if provider == ProviderKind::OpenRouter && self.load_openrouter_analytics()?.is_none() {
+            return Ok(Vec::new());
+        }
         if provider == ProviderKind::Codex && self.use_codex_account_data()? {
             let mut merged = BTreeMap::<String, TokenUsage>::new();
             for (model, _, usage) in
@@ -1172,6 +1181,9 @@ impl ProviderStore {
         start: NaiveDate,
         end: NaiveDate,
     ) -> Result<Vec<(String, NaiveDate, TokenUsage)>> {
+        if provider == ProviderKind::OpenRouter && self.load_openrouter_analytics()?.is_none() {
+            return Ok(Vec::new());
+        }
         if provider == ProviderKind::Codex && self.use_codex_account_data()? {
             return self.account_daily_for(&codex_accounts::current_id(), start, end);
         }
@@ -1736,6 +1748,80 @@ mod tests {
         );
         store.clear_usage_data().unwrap();
         assert!(store.load_openrouter_analytics().unwrap().is_none());
+    }
+
+    #[test]
+    fn legacy_openrouter_total_usage_cache_is_hidden_until_credit_costs_are_refetched() {
+        let dir = tempdir().unwrap();
+        let store = test_store(&dir.path().join("test.sqlite"));
+        let day = DailyTokenUsage {
+            date: Local::now().date_naive(),
+            usage: TokenUsage {
+                requests: 1,
+                priced_requests: 1,
+                estimated_cost_microusd: 26_070_000,
+                ..Default::default()
+            },
+        };
+        store
+            .save_openrouter_analytics(
+                "old",
+                std::slice::from_ref(&day),
+                &[("model".into(), day.date, day.usage.clone())],
+                Utc::now(),
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "UPDATE meta SET key='openrouter.analytics.v1' WHERE key='openrouter.analytics.v3'",
+                [],
+            )
+            .unwrap();
+        assert!(store.load_openrouter_analytics().unwrap().is_none());
+        assert_eq!(
+            store
+                .load_usage_daily(ProviderKind::OpenRouter, 30)
+                .unwrap()
+                .history
+                .estimated_cost_microusd,
+            0
+        );
+        assert!(
+            store
+                .load_model_breakdown(ProviderKind::OpenRouter, day.date, day.date)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .load_model_daily(ProviderKind::OpenRouter, day.date, day.date)
+                .unwrap()
+                .is_empty()
+        );
+        let fresh = DailyTokenUsage {
+            usage: TokenUsage {
+                estimated_cost_microusd: 15_440_000,
+                ..day.usage.clone()
+            },
+            ..day.clone()
+        };
+        store
+            .save_openrouter_analytics(
+                "fresh",
+                std::slice::from_ref(&fresh),
+                &[("model".into(), day.date, fresh.usage.clone())],
+                Utc::now(),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .load_usage_daily(ProviderKind::OpenRouter, 30)
+                .unwrap()
+                .history
+                .estimated_cost_microusd,
+            15_440_000
+        );
     }
 
     #[test]

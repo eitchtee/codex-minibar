@@ -122,7 +122,6 @@ pub(super) fn start_background_bridge(
             compact_usage_cards: state.settings.compact_usage_cards,
             popup_visibility: state.settings.popup_visibility.clone(),
             usage_stats_enabled: state.settings.usage_stats_enabled,
-            usage_stats_excluded_providers: state.settings.usage_stats_excluded_providers.clone(),
             show_total_spend_on_all_tab: state.settings.show_total_spend_on_all_tab,
             total_spend_presentation: state.settings.total_spend_presentation,
             total_spend_period: state.settings.total_spend_period,
@@ -246,7 +245,7 @@ pub(super) fn start_background_bridge(
             ui.compact_usage_cards = settings.compact_usage_cards;
             ui.popup_visibility = settings.popup_visibility.clone();
             ui.usage_stats_enabled = settings.usage_stats_enabled;
-            ui.usage_stats_excluded_providers = settings.usage_stats_excluded_providers.clone();
+            ui.usage_stats_excluded_providers = settings.effective_usage_stats_excluded_providers();
             ui.show_total_spend_on_all_tab = settings.show_total_spend_on_all_tab;
             ui.total_spend_presentation = settings.total_spend_presentation;
             ui.total_spend_period = settings.total_spend_period;
@@ -330,7 +329,7 @@ pub(super) fn start_background_bridge(
                 }
                 if !settings.usage_stats_enabled
                     || !crate::provider_registry::supports_usage_stats(provider)
-                    || !settings.usage_stats_provider_enabled(provider)
+                    || !settings.usage_stats_collection_enabled(provider)
                 {
                     ui.clear_usage_error(provider);
                 }
@@ -384,9 +383,8 @@ pub(super) fn start_background_bridge(
                     settings.history_retention_days,
                 ));
                 let _ = commands.send(WorkerCommand::SetUsageCollectionEnabled(
-                    settings.usage_stats_enabled
-                        && crate::provider_registry::supports_usage_stats(provider)
-                        && settings.usage_stats_provider_enabled(provider),
+                    crate::provider_registry::supports_usage_stats(provider)
+                        && settings.usage_stats_collection_enabled(provider),
                 ));
                 if (provider == ProviderKind::OpenCodeZen && opencode_zen_credentials_changed)
                     || (provider == ProviderKind::OpenCodeGo && opencode_go_credentials_changed)
@@ -782,7 +780,10 @@ pub(super) fn start_background_bridge(
                         usage.today.total_tokens(),
                         usage.history.total_tokens()
                     ));
-                    let usage_error = usage_error_message(&usage);
+                    let usage_error = live_settings
+                        .usage_stats_collection_enabled(provider)
+                        .then(|| usage_error_message(&usage))
+                        .flatten();
                     state.replace_usage(provider, usage);
                     if let Some(error) = usage_error {
                         ui.set_usage_error(provider, error);
@@ -821,7 +822,9 @@ pub(super) fn start_background_bridge(
                     publish_popup_ui(&set_ui, &ui);
                 }
                 Ok(WorkerEvent::ProviderUsageRefreshFailed(provider, worker_revision, error)) => {
-                    if !provider_worker_event_is_current(&ui, provider, worker_revision) {
+                    if !provider_worker_event_is_current(&ui, provider, worker_revision)
+                        || !live_settings.usage_stats_collection_enabled(provider)
+                    {
                         continue;
                     }
                     crate::logger::info(format!(

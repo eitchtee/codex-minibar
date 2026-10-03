@@ -750,12 +750,17 @@ fn spend_display_cents(microusd: u64) -> u64 {
         .clamp(0.0, u64::MAX as f64) as u64
 }
 
-pub(super) fn usage_tokens_and_cost_metric(label: &str, tokens: String, cost: String) -> Element {
+pub(super) fn usage_tokens_and_cost_metric(
+    label: &str,
+    tokens: String,
+    cost: String,
+    exact: bool,
+) -> Element {
     vstack((
         caption(label).foreground(ThemeRef::TertiaryText),
         hstack((
             text_block(tokens).font_weight(600),
-            caption(format!("≈ {cost}"))
+            caption(format!("{} {cost}", if exact { "=" } else { "≈" }))
                 .foreground(ThemeRef::TertiaryText)
                 .vertical_alignment(VerticalAlignment::Center),
         ))

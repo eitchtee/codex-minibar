@@ -146,7 +146,9 @@ fn sync_accounts(cache: &mut Cache, revision: u64, accounts: &[(String, String)]
             };
         }
         if identity.is_empty() {
-            entry.error = Some("Add a management key to load usage statistics.".into());
+            // Management keys are optional for spending. Clear the synthetic
+            // warning from older caches as well as avoiding new warnings.
+            entry.error = None;
         }
     }
     cache.revision = revision;
@@ -323,7 +325,7 @@ fn query(
     granularity: Option<&str>,
 ) -> Result<String> {
     let mut body = json!({
-        "metrics": ["request_count", "total_usage", "tokens_prompt", "tokens_completion", "cached_tokens"],
+        "metrics": ["request_count", "credits_usage", "tokens_prompt", "tokens_completion", "cached_tokens"],
         "dimensions": ["model"],
         "limit": 10000,
         "time_range": {
@@ -422,7 +424,23 @@ fn refresh_account(
             continue;
         }
         let models = if start < now {
-            parse(&fetch(start, end.min(now), None)?)?
+            // Unbucketed queries use coarse UTC rollups. A local day crossing
+            // UTC midnight can include the same rollup in neighboring days.
+            // Hour/minute queries use explicit timestamps; only aggregate the
+            // buckets inside this exact, non-overlapping local-day interval.
+            let granularity = if start.timestamp().rem_euclid(3600) == 0
+                && end.timestamp().rem_euclid(3600) == 0
+            {
+                "hour"
+            } else {
+                "minute"
+            };
+            let query_end = end.min(now);
+            let mut models = BTreeMap::<String, TokenUsage>::new();
+            for row in complete_bucket_rows(start, query_end, granularity, &mut fetch)? {
+                models.entry(row.model).or_default().add(&row.usage);
+            }
+            models
         } else {
             BTreeMap::new()
         };
@@ -454,12 +472,7 @@ fn refresh_account(
             && now >= h.fetched_at
             && now - h.fetched_at < Duration::minutes(5)
     }) {
-        let rows = parse_hourly(
-            &fetch(start, now, Some(granularity))?,
-            granularity,
-            start,
-            now,
-        )?;
+        let rows = complete_bucket_rows(start, now, granularity, &mut fetch)?;
         account.hourly = Some(HourlyCache {
             fetched_at: now,
             granularity: granularity.into(),
@@ -543,14 +556,14 @@ fn row_usage(row: &Value) -> Result<(String, TokenUsage)> {
         .context("OpenRouter analytics missing model")?;
     let requests = count(row, "request_count")?;
     let cost = row
-        .get("total_usage")
-        .context("OpenRouter analytics missing total_usage")?;
+        .get("credits_usage")
+        .context("OpenRouter analytics missing credits_usage")?;
     let cost = if let Some(s) = cost.as_str() {
         s.parse::<f64>().ok()
     } else {
         cost.as_f64()
     }
-    .context("OpenRouter analytics invalid total_usage")?;
+    .context("OpenRouter analytics invalid credits_usage")?;
     ensure!(
         cost.is_finite() && cost >= 0.0 && cost * 1_000_000.0 < i64::MAX as f64,
         "OpenRouter analytics invalid cost"
@@ -568,6 +581,7 @@ fn row_usage(row: &Value) -> Result<(String, TokenUsage)> {
         },
     ))
 }
+#[cfg(test)]
 fn parse(body: &str) -> Result<BTreeMap<String, TokenUsage>> {
     let mut models: BTreeMap<String, TokenUsage> = BTreeMap::new();
     for row in rows(body)? {
@@ -576,6 +590,36 @@ fn parse(body: &str) -> Result<BTreeMap<String, TokenUsage>> {
     }
     Ok(models)
 }
+/// Split truncated time-series responses on bucket boundaries. No incomplete
+/// child response is committed, and half-open intervals prevent double counting.
+fn complete_bucket_rows(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    granularity: &str,
+    fetch: &mut impl FnMut(DateTime<Utc>, DateTime<Utc>, Option<&str>) -> Result<String>,
+) -> Result<Vec<HourlyRow>> {
+    let body = fetch(start, end, Some(granularity))?;
+    let response: Value = serde_json::from_str(&body).context("parse OpenRouter analytics")?;
+    if response
+        .pointer("/data/metadata/truncated")
+        .and_then(Value::as_bool)
+        != Some(true)
+    {
+        return parse_hourly(&body, granularity, start, end);
+    }
+    let bucket_seconds = if granularity == "minute" { 60 } else { 3600 };
+    let midpoint = start.timestamp() + (end.timestamp() - start.timestamp()) / 2;
+    let split = DateTime::from_timestamp(midpoint.div_euclid(bucket_seconds) * bucket_seconds, 0)
+        .context("OpenRouter analytics invalid split timestamp")?;
+    ensure!(
+        split > start && split < end,
+        "OpenRouter analytics exceeded the row limit within a single time bucket"
+    );
+    let mut rows = complete_bucket_rows(start, split, granularity, fetch)?;
+    rows.extend(complete_bucket_rows(split, end, granularity, fetch)?);
+    Ok(rows)
+}
+
 fn parse_hourly(
     body: &str,
     granularity: &str,
@@ -617,8 +661,115 @@ fn parse_hourly(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn truncated_dense_minute_history_splits_without_missing_or_duplicate_buckets() {
+        let start = DateTime::parse_from_rfc3339("2026-10-01T18:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let end = start + Duration::hours(24);
+        let mut intervals = Vec::new();
+        let result = complete_bucket_rows(start, end, "minute", &mut |from, to, granularity| {
+            assert_eq!(granularity, Some("minute"));
+            intervals.push((from, to));
+            if to - from > Duration::hours(12) {
+                return Ok(json!({"data":{"metadata":{"truncated":true},"data":[]}}).to_string());
+            }
+            let rows = (0..(to - from).num_minutes())
+                .flat_map(|minute| {
+                    let at = (from + Duration::minutes(minute)).to_rfc3339();
+                    (0..7).map(move |model| {
+                        let mut row = fixture(&at, "date__minute");
+                        row["model"] = json!(format!("model-{model}"));
+                        row
+                    })
+                })
+                .collect();
+            Ok(envelope(rows))
+        })
+        .unwrap();
+        let split = start + Duration::hours(12);
+        assert_eq!(intervals, vec![(start, end), (start, split), (split, end)]);
+        assert_eq!(result.len(), 1440 * 7);
+        let unique = result
+            .iter()
+            .map(|row| (row.at, row.model.as_str()))
+            .collect::<HashSet<_>>();
+        assert_eq!(unique.len(), result.len());
+        assert_eq!(
+            result
+                .iter()
+                .map(|row| row.usage.estimated_cost_microusd)
+                .sum::<u64>(),
+            1440 * 7 * 123456
+        );
+    }
+
+    #[test]
+    fn truncated_single_bucket_fails_without_recursing_forever() {
+        let start = Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap();
+        let mut calls = 0;
+        let result = complete_bucket_rows(
+            start,
+            start + Duration::minutes(1),
+            "minute",
+            &mut |_, _, _| {
+                calls += 1;
+                Ok(json!({"data":{"metadata":{"truncated":true},"data":[]}}).to_string())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn failed_truncated_child_never_commits_a_partial_day() {
+        let now = boundaries(Local::now().date_naive()).unwrap().0 + Duration::hours(12);
+        let mut account = AccountCache::default();
+        let mut calls = 0;
+        let result = refresh_account(&mut account, 30, now, |_, _, _| {
+            calls += 1;
+            match calls {
+                1 => Ok(json!({"data":{"metadata":{"truncated":true},"data":[]}}).to_string()),
+                2 => Ok(envelope(vec![])),
+                _ => anyhow::bail!("second half failed"),
+            }
+        });
+        assert!(result.is_err());
+        assert!(account.days.is_empty());
+    }
+    #[test]
+    fn daily_history_requires_time_buckets_instead_of_overlapping_rollup_totals() {
+        let now = boundaries(Local::now().date_naive()).unwrap().0 + Duration::hours(12);
+        let mut account = AccountCache::default();
+        refresh_account(&mut account, 30, now, |start, _, granularity| {
+            assert!(
+                granularity.is_some(),
+                "Unbucketed daily queries can count neighboring UTC days twice"
+            );
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
+        })
+        .unwrap();
+        assert_eq!(account.days.len(), 90);
+        assert!(
+            account
+                .days
+                .values()
+                .all(|day| day.models["test/model"].requests == 2)
+        );
+    }
+    #[test]
+    fn reported_cost_uses_account_credit_charges_instead_of_total_byok_value() {
+        let (_, usage) = row_usage(&json!({
+            "model": "test/model", "request_count": 2,
+            "total_usage": "26.07", "credits_usage": "15.44",
+            "tokens_prompt": 100, "tokens_completion": 20, "cached_tokens": 40,
+        }))
+        .unwrap();
+        assert_eq!(usage.estimated_cost_microusd, 15_440_000);
+    }
     fn fixture(at: &str, field: &str) -> Value {
-        let mut row = json!({"model":"test/model","request_count":"2","total_usage":"0.123456","tokens_prompt":"100","tokens_completion":20,"cached_tokens":40});
+        let mut row = json!({"model":"test/model","request_count":"2","credits_usage":"0.123456","tokens_prompt":"100","tokens_completion":20,"cached_tokens":40});
         row[field] = json!(at);
         row
     }
@@ -1004,25 +1155,23 @@ mod tests {
         let now = boundaries(Local::now().date_naive()).unwrap().0 + Duration::hours(12);
         let mut account = AccountCache::default();
         let mut requests = 0;
-        let result = refresh_account(&mut account, 30, now, |_, _, _| {
+        let result = refresh_account(&mut account, 30, now, |start, _, granularity| {
             requests += 1;
             if requests == 3 {
                 anyhow::bail!("429");
             }
-            Ok(envelope(vec![fixture("unused", "unused")]))
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
         });
         assert!(result.is_err());
         assert_eq!(account.days.len(), 2);
         let encoded = serde_json::to_string(&account).unwrap();
         let mut restored: AccountCache = serde_json::from_str(&encoded).unwrap();
         let mut resumed = 0;
-        refresh_account(&mut restored, 30, now, |_, _, granularity| {
+        refresh_account(&mut restored, 30, now, |start, _, granularity| {
             resumed += 1;
-            Ok(if granularity.is_some() {
-                envelope(vec![])
-            } else {
-                envelope(vec![fixture("unused", "unused")])
-            })
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
         })
         .unwrap();
         assert_eq!(resumed, 89); // 88 remaining daily queries + hourly snapshot.
@@ -1031,6 +1180,17 @@ mod tests {
             panic!("fresh account must reuse its cache")
         })
         .unwrap();
+    }
+
+    #[test]
+    fn api_only_account_never_reports_a_missing_management_key_error() {
+        let mut cache = Cache::default();
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        assert!(statistics(&cache, 30).accounts["api-only"].error.is_none());
+        cache.account_data.get_mut("api-only").unwrap().error =
+            Some("Add a management key to load usage statistics.".into());
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        assert!(statistics(&cache, 30).accounts["api-only"].error.is_none());
     }
 
     #[test]

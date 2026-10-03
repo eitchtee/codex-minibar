@@ -65,6 +65,9 @@ pub struct SpendingSummary {
 /// Per-key OpenRouter usage nested under an account snapshot.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OpenRouterApiKeySnapshot {
+    /// User-selected name, separate from the cached remote label.
+    #[serde(default)]
+    pub local_name: Option<String>,
     pub id: String,
     pub label: Option<String>,
     /// Collapsed key fingerprint for display, never the full secret.

@@ -13,6 +13,9 @@ pub struct IconGeom {
 
 pub fn geom(name: &str) -> IconGeom {
     let svg = match name {
+        "pencil-simple" => include_str!("../assets/icons/ph-pencil-simple-fill.svg"),
+        "trash" => include_str!("../assets/icons/ph-trash-fill.svg"),
+        "plus" => include_str!("../assets/icons/ph-plus-fill.svg"),
         // Fluent glyphs are used for popup chrome and compact controls.
         "fluent-refresh" | "arrows-clockwise" | "popup-refresh" => {
             include_str!("../assets/icons/fluent-arrow-sync-24-filled.svg")
