@@ -1982,6 +1982,9 @@ fn openrouter_account_usage(limits: &RateLimits, account: &str) -> Option<Elemen
         return None;
     }
     if contents.is_empty() {
+        if !crate::openrouter::management_key_is_configured(account) {
+            return None;
+        }
         contents.push(
             caption("Loading usage statistics…")
                 .foreground(ThemeRef::TertiaryText)

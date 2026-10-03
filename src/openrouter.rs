@@ -520,6 +520,12 @@ pub fn management_key_is_configured(account_id: &str) -> bool {
     load_secret(&management_secret_name(account_id))
 }
 
+pub(crate) fn has_management_key(accounts: &[OpenRouterAccount]) -> bool {
+    accounts
+        .iter()
+        .any(|account| management_key_is_configured(&account.id))
+}
+
 pub fn save_account_api_key(account_id: &str, key_id: &str, value: Option<&str>) -> Result<()> {
     save_secret_and_hint(&api_secret_name(account_id, key_id), value)
 }

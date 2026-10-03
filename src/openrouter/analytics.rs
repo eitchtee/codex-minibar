@@ -146,7 +146,9 @@ fn sync_accounts(cache: &mut Cache, revision: u64, accounts: &[(String, String)]
             };
         }
         if identity.is_empty() {
-            entry.error = Some("Add a management key to load usage statistics.".into());
+            // Management keys are optional for spending. Clear the synthetic
+            // warning from older caches as well as avoiding new warnings.
+            entry.error = None;
         }
     }
     cache.revision = revision;
@@ -1031,6 +1033,17 @@ mod tests {
             panic!("fresh account must reuse its cache")
         })
         .unwrap();
+    }
+
+    #[test]
+    fn api_only_account_never_reports_a_missing_management_key_error() {
+        let mut cache = Cache::default();
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        assert!(statistics(&cache, 30).accounts["api-only"].error.is_none());
+        cache.account_data.get_mut("api-only").unwrap().error =
+            Some("Add a management key to load usage statistics.".into());
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        assert!(statistics(&cache, 30).accounts["api-only"].error.is_none());
     }
 
     #[test]

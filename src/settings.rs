@@ -2053,6 +2053,33 @@ impl Settings {
             .any(|id| id == provider.id())
     }
 
+    pub(crate) fn usage_stats_collection_enabled(&self, provider: ProviderKind) -> bool {
+        self.usage_stats_enabled
+            && self.usage_stats_provider_enabled(provider)
+            && (provider != ProviderKind::OpenRouter
+                || crate::openrouter::has_management_key(&self.openrouter_accounts))
+    }
+
+    pub(crate) fn effective_usage_stats_excluded_providers(&self) -> Vec<String> {
+        let mut excluded = self.usage_stats_excluded_providers.clone();
+        if !crate::openrouter::has_management_key(&self.openrouter_accounts)
+            && !excluded
+                .iter()
+                .any(|id| id == ProviderKind::OpenRouter.id())
+        {
+            excluded.push(ProviderKind::OpenRouter.id().into());
+        }
+        excluded
+    }
+
+    /// Enable on the first key, preserve manual opt-out while a key remains,
+    /// and disable when the last management key is removed.
+    pub(crate) fn sync_openrouter_usage_availability(&mut self, before: bool, after: bool) {
+        if !after || !before {
+            self.set_usage_stats_provider_enabled(ProviderKind::OpenRouter, after);
+        }
+    }
+
     pub fn set_usage_stats_provider_enabled(&mut self, provider: ProviderKind, enabled: bool) {
         if enabled {
             self.usage_stats_excluded_providers
@@ -3089,6 +3116,47 @@ fn migrate(document: &mut toml::Value, mut version: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn openrouter_usage_tracks_management_key_availability_without_overriding_opt_out() {
+        let mut settings = Settings::default();
+        settings.sync_openrouter_usage_availability(false, false);
+        assert!(!settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+        assert!(settings.usage_stats_provider_enabled(ProviderKind::Codex));
+
+        settings.sync_openrouter_usage_availability(false, true);
+        assert!(settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+        settings.set_usage_stats_provider_enabled(ProviderKind::OpenRouter, false);
+        // Refresh, replacement, or removal of one of several management keys
+        // must preserve a manual opt-out while another key is still present.
+        settings.sync_openrouter_usage_availability(true, true);
+        assert!(!settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+        settings.set_usage_stats_provider_enabled(ProviderKind::OpenRouter, true);
+        settings.sync_openrouter_usage_availability(true, false);
+        assert!(!settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+        settings.sync_openrouter_usage_availability(false, true);
+        assert!(settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+
+        // Adding a key must not switch the global master toggle back on.
+        settings.usage_stats_enabled = false;
+        settings.sync_openrouter_usage_availability(false, true);
+        assert!(!settings.usage_stats_enabled);
+    }
+
+    #[test]
+    fn openrouter_usage_is_unavailable_without_management_credentials_on_startup() {
+        let settings = Settings::default();
+        assert!(settings.openrouter_accounts.is_empty());
+        assert!(!settings.usage_stats_collection_enabled(ProviderKind::OpenRouter));
+        assert!(
+            settings
+                .effective_usage_stats_excluded_providers()
+                .iter()
+                .any(|id| id == ProviderKind::OpenRouter.id())
+        );
+        assert!(settings.usage_stats_collection_enabled(ProviderKind::Codex));
+        assert!(settings.usage_stats_collection_enabled(ProviderKind::Claude));
+    }
 
     #[test]
     fn defaults_match_product_decisions() {

@@ -672,12 +672,25 @@ fn persist_openrouter_accounts(
     bump_credentials: bool,
     mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
 ) -> anyhow::Result<()> {
+    persist_openrouter_accounts_with_availability(settings_tx, bump_credentials, None, mutate)
+}
+
+fn persist_openrouter_accounts_with_availability(
+    settings_tx: Sender<Settings>,
+    bump_credentials: bool,
+    previous_availability: Option<bool>,
+    mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
+) -> anyhow::Result<()> {
     try_persist_update_fallible(settings_tx, move |settings| {
         // Include the synthetic legacy account when present so edits land on
         // the same identities the Settings UI is showing.
         let mut accounts = crate::openrouter::accounts_for_settings(settings);
         mutate(&mut accounts)?;
         settings.openrouter_accounts = accounts;
+        if let Some(before) = previous_availability {
+            let after = crate::openrouter::has_management_key(&settings.openrouter_accounts);
+            settings.sync_openrouter_usage_availability(before, after);
+        }
         if bump_credentials {
             settings.openrouter_credentials_revision =
                 settings.openrouter_credentials_revision.wrapping_add(1);
@@ -694,8 +707,12 @@ fn persist_openrouter_credentials(
     changes: Vec<crate::openrouter::AccountSecretChange>,
     mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
 ) -> anyhow::Result<()> {
+    let current = Settings::load_or_create(&Settings::default_path()?)?;
+    let before = crate::openrouter::has_management_key(&current.openrouter_accounts);
     let rollback = crate::openrouter::apply_account_secret_changes(&changes)?;
-    if let Err(error) = persist_openrouter_accounts(settings_tx, true, mutate) {
+    if let Err(error) =
+        persist_openrouter_accounts_with_availability(settings_tx, true, Some(before), mutate)
+    {
         return match rollback.restore() {
             Ok(()) => Err(error),
             Err(rollback_error) => Err(anyhow::anyhow!(
