@@ -152,8 +152,7 @@ fn load_xaml(xaml: String) -> Result<windows_core::IInspectable> {
 }
 
 fn nav_item_content(item: &NavViewItem) -> Result<bindings::UIElement> {
-    if item.trailing_icon_path.is_none() && item.info_badge.is_none() && item.status_dot.is_none()
-    {
+    if item.trailing_icon_path.is_none() && item.info_badge.is_none() && item.status_dot.is_none() {
         return string_as_textblock(&item.content)?.cast();
     }
     let label = xml_escape_attr(&item.content);
@@ -311,6 +310,21 @@ pub(super) fn build_menu_flyout_item_base(
         MenuItemDef::Item { text } => {
             let item = bindings::MenuFlyoutItem::new()?;
             item.SetText(text)?;
+            item.cast()
+        }
+        MenuItemDef::IconItem { text, path } => {
+            let item = bindings::MenuFlyoutItem::new()?;
+            item.SetText(text)?;
+            let path = xml_escape_attr(path);
+            let icon = load_xaml(format!(
+                r#"<PathIcon xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="16" Height="16" Data="{path}" />"#
+            )).and_then(|value| value.cast::<bindings::IconElement>());
+            // A failed optional decoration must never prevent SetFlyout from
+            // installing the menu or wiring its click handlers.
+            match icon {
+                Ok(icon) => diag::dropped(item.SetIcon(&icon)),
+                Err(error) => diag::warn(format_args!("menu icon failed for {text}: {error:?}")),
+            }
             item.cast()
         }
         MenuItemDef::Separator => {

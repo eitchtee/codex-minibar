@@ -9669,6 +9669,17 @@ impl windows_core::RuntimeType for IMenuFlyoutItem {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IMenuFlyoutItem {
+    pub(crate) fn SetIcon<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<IconElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIcon)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            ).ok()
+        }
+    }
     pub(crate) fn Text(&self) -> windows_core::Result<String> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -9735,7 +9746,10 @@ pub struct IMenuFlyoutItem_Vtbl {
     CommandParameter: usize,
     SetCommandParameter: usize,
     Icon: usize,
-    SetIcon: usize,
+    pub SetIcon: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     KeyboardAcceleratorTextOverride: usize,
     SetKeyboardAcceleratorTextOverride: usize,
     TemplateSettings: usize,

@@ -6,13 +6,24 @@ use super::*;
 pub enum MenuItemDef {
     /// A clickable menu item with a text label.
     Item { text: String },
+    /// A clickable item with vector geometry normalized to a 16px canvas.
+    IconItem { text: String, path: String },
     /// A visual separator line.
     Separator,
     /// A submenu containing nested items.
-    SubItem {
-        text: String,
-        children: Vec<Self>,
-    },
+    SubItem { text: String, children: Vec<Self> },
+}
+
+impl MenuItemDef {
+    pub fn path_icon(self, path: impl Into<String>) -> Self {
+        match self {
+            Self::Item { text } | Self::IconItem { text, .. } => Self::IconItem {
+                text,
+                path: path.into(),
+            },
+            other => other,
+        }
+    }
 }
 
 /// Builder for a [`MenuItemDef::Item`].

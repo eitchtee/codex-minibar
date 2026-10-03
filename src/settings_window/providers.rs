@@ -599,7 +599,27 @@ fn more_menu(
         // buttons, which made the menu appear empty.
         .icon(Symbol::More)
         .subtle()
-        .menu_flyout(items.iter().map(|item| menu_item(*item)).collect())
+        .menu_flyout(
+            items
+                .iter()
+                .map(|item| {
+                    let icon = match *item {
+                        "Rename key" => Some("pencil-simple"),
+                        "Remove key" => Some("trash"),
+                        "Add key" => Some("plus"),
+                        _ => None,
+                    };
+                    let definition = menu_item(*item);
+                    match icon {
+                        Some(name) => {
+                            let geometry = crate::icons::geom(name);
+                            definition.path_icon(geometry.path)
+                        }
+                        None => definition,
+                    }
+                })
+                .collect(),
+        )
         .on_item_clicked(on_choice)
         .tooltip("More options")
         .width(32.0)
@@ -2133,7 +2153,7 @@ fn openrouter_key_table(
             .unwrap_or_default();
         let menu = more_menu(
             if saved || read_error.is_some() {
-                &["Rename key", "Replace key", "Remove key"]
+                &["Rename key", "Remove key"]
             } else {
                 &["Rename key", "Add key", "Remove key"]
             },
