@@ -1253,3 +1253,45 @@ fn two_column_native_host_stays_wide_on_every_compact_provider_page() {
         }
     }
 }
+
+#[test]
+fn home_shows_every_claude_profile_as_its_own_strip() {
+    let mut limits = plan_limits("max");
+    for id in ["default", "work"] {
+        limits
+            .claude_profiles
+            .push(crate::limits::ClaudeProfileSnapshot {
+                id: id.into(),
+                name: id.into(),
+                limits: plan_limits("max"),
+                error: None,
+            });
+    }
+    let cards = provider_cards(
+        ProviderKind::Claude,
+        true,
+        &limits,
+        &[],
+        false,
+        true,
+        false,
+        true,
+        &all_visible(),
+        PopupSurface::HomeTab,
+        true,
+        true,
+        false,
+        ColorScheme::Dark,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    // One keyed strip per profile instead of one flat list of limit cards.
+    assert_eq!(cards.len(), 2);
+}

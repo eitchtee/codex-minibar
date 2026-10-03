@@ -156,6 +156,7 @@ pub(super) fn start_background_bridge(
             replace_chatgpt_logo_with_codex: state.settings.replace_chatgpt_logo_with_codex,
             codex_path: state.settings.codex_path.clone(),
             claude_path: state.settings.claude_path.clone(),
+            claude_profiles: state.settings.claude_profiles.clone(),
             cursor_path: state.settings.cursor_path.clone(),
             antigravity_path: state.settings.antigravity_path.clone(),
             grok_path: state.settings.grok_path.clone(),
@@ -235,6 +236,24 @@ pub(super) fn start_background_bridge(
                     ui_dispatcher.clone(),
                 );
             }
+            // A rename only relabels the cards. Adding, removing or toggling
+            // a profile changes what is read, so the reader restarts.
+            let read_set = |profiles: &[crate::settings::ClaudeProfile]| {
+                profiles
+                    .iter()
+                    .map(|profile| (profile.id.clone(), profile.enabled))
+                    .collect::<Vec<_>>()
+            };
+            let claude_profiles_changed =
+                read_set(&ui.claude_profiles) != read_set(&settings.claude_profiles);
+            if claude_profiles_changed {
+                // Never show a removed or disabled profile's numbers while
+                // the restarted worker makes its first read.
+                state.replace_limits(ProviderKind::Claude, RateLimits::default());
+                ui.observe_limits_update();
+            } else if state.apply_claude_profile_names(&settings) {
+                ui.observe_limits_update();
+            }
             ui.theme = settings.theme;
             ui.accent_color = settings.accent_color;
             ui.animations_enabled = settings.animations_enabled;
@@ -287,7 +306,10 @@ pub(super) fn start_background_bridge(
             flush_popup_ui(set_ui, ui);
             let restart = [
                 (ProviderKind::Codex, settings.codex_path != ui.codex_path),
-                (ProviderKind::Claude, settings.claude_path != ui.claude_path),
+                (
+                    ProviderKind::Claude,
+                    settings.claude_path != ui.claude_path || claude_profiles_changed,
+                ),
                 (ProviderKind::Cursor, settings.cursor_path != ui.cursor_path),
                 (
                     ProviderKind::Antigravity,
@@ -307,6 +329,7 @@ pub(super) fn start_background_bridge(
             .collect::<Vec<_>>();
             ui.codex_path = settings.codex_path.clone();
             ui.claude_path = settings.claude_path.clone();
+            ui.claude_profiles = settings.claude_profiles.clone();
             ui.cursor_path = settings.cursor_path.clone();
             ui.antigravity_path = settings.antigravity_path.clone();
             ui.grok_path = settings.grok_path.clone();
@@ -687,6 +710,8 @@ pub(super) fn start_background_bridge(
                     if provider == ProviderKind::OpenRouter {
                         crate::openrouter::apply_account_names(&mut limits, &live_settings);
                     }
+                    // The running reader still has the names it started with.
+                    crate::claude::apply_profile_names(&mut limits, &live_settings);
                     // Publish once, then let both native tray and WinUI render
                     // from that exact snapshot.
                     state.replace_limits(provider, limits);
