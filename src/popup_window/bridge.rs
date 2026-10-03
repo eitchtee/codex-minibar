@@ -383,8 +383,7 @@ pub(super) fn start_background_bridge(
             }
             for (provider, commands) in state.worker_commands() {
                 let _ = commands.send(WorkerCommand::SetAutomaticActivation(
-                    settings.automatic_activation
-                        && crate::provider_registry::descriptor(provider).supports_activation,
+                    crate::provider::automatic_activation(provider, &settings),
                 ));
                 let schedules = settings
                     .scheduled_activations
