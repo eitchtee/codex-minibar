@@ -127,6 +127,7 @@ pub fn sidebar_mono_icon(name: &str) -> &'static str {
         "customize" => "squares-four",
         "schedule" => "clock",
         "tray" => "chat-centered-text",
+        "floating-panel" => "desktop",
         "notifications" => "bell",
         "appearance" => "paint-brush",
         "advanced" => "sliders",

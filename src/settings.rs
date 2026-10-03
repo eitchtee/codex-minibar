@@ -10,7 +10,7 @@ use chrono::{DateTime, Local, Timelike};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-pub const SETTINGS_VERSION: u32 = 38;
+pub const SETTINGS_VERSION: u32 = 39;
 
 /// 255 until `TimeFormat::apply` runs so first paint can still follow Windows.
 static TIME_FORMAT: AtomicU8 = AtomicU8::new(u8::MAX);
@@ -1604,6 +1604,8 @@ impl Default for NotificationSettings {
 #[serde(default)]
 pub struct Settings {
     pub version: u32,
+    #[serde(default)]
+    pub floating_panel: crate::floating_panel::FloatingPanelSettings,
     /// False only while a brand-new installation is still in the first-launch
     /// flow. Keeping this persisted makes onboarding resilient to a close or
     /// reboot between its two pages.
@@ -1725,6 +1727,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
+            floating_panel: crate::floating_panel::FloatingPanelSettings::default(),
             onboarding_completed: false,
             theme: AppTheme::Auto,
             accent_color: AccentColor::Windows,
@@ -1817,11 +1820,13 @@ impl Settings {
         let tray_widgets_normalized = settings.normalize_tray_widgets();
         let popup_order_normalized = settings.normalize_popup_order();
         let popup_visibility_normalized = settings.normalize_popup_visibility();
+        let floating_panel_normalized = settings.floating_panel.normalize();
         if dirty
             || repaired
             || tray_widgets_normalized
             || popup_order_normalized
             || popup_visibility_normalized
+            || floating_panel_normalized
         {
             settings.save(path)?;
         }
@@ -1846,6 +1851,22 @@ impl Settings {
         match document.clone().try_into::<Self>() {
             Ok(settings) => Ok((settings, dirty)),
             Err(error) => {
+                // A broken optional panel must not discard provider credentials,
+                // tray widgets or schedules while recovering the settings file.
+                let invalid_panel = document.get("floating_panel").is_some_and(|value| {
+                    value
+                        .clone()
+                        .try_into::<crate::floating_panel::FloatingPanelSettings>()
+                        .is_err()
+                });
+                let stripped_panel = invalid_panel
+                    && document
+                        .as_table_mut()
+                        .is_some_and(|root| root.remove("floating_panel").is_some());
+                if stripped_panel && let Ok(settings) = document.clone().try_into::<Self>() {
+                    eprintln!("floating_panel settings were invalid ({error}); using defaults");
+                    return Ok((settings, true));
+                }
                 // A bad newly-introduced scalar must not take providers, tray
                 // widgets, or schedules down with it.
                 let stripped_time_format = document
@@ -3058,6 +3079,14 @@ fn migrate(document: &mut toml::Value, mut version: u32) -> Result<()> {
                     .context("settings root must be a TOML table")?
                     .insert("version".into(), toml::Value::Integer(38));
                 version = 38;
+            }
+            38 => {
+                // The panel is opt-in; serde supplies its independent defaults.
+                document
+                    .as_table_mut()
+                    .context("settings root must be a TOML table")?
+                    .insert("version".into(), toml::Value::Integer(39));
+                version = 39;
             }
             // Unknown future/gap versions: stamp current and keep decoding with
             // serde defaults rather than refusing to start.

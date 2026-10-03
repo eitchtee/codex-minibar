@@ -69,6 +69,11 @@ pub(super) fn start_background_bridge(
     // refresh is in flight. Opening Settings never starts another poll.
     // Account names live in settings, so overlay them before the first paint.
     let startup_settings = state.settings.clone();
+    crate::floating_panel::sync(
+        startup_settings.clone(),
+        Arc::clone(&state),
+        ui_dispatcher.clone(),
+    );
     let _ = state.apply_openrouter_account_names(&startup_settings);
     crate::settings_window::publish_openrouter_snapshot(
         state.current_limits().get(ProviderKind::OpenRouter),
@@ -285,6 +290,11 @@ pub(super) fn start_background_bridge(
             // work. In particular, changing provider icons must never wait on
             // a worker lock, network request, or provider lifecycle change.
             flush_popup_ui(set_ui, ui);
+            crate::floating_panel::sync(
+                settings.clone(),
+                Arc::clone(&state),
+                ui_dispatcher.clone(),
+            );
             let restart = [
                 (ProviderKind::Codex, settings.codex_path != ui.codex_path),
                 (ProviderKind::Claude, settings.claude_path != ui.claude_path),
@@ -692,6 +702,7 @@ pub(super) fn start_background_bridge(
                     state.replace_limits(provider, limits);
                     ui.clear_provider_error(provider);
                     let limits = state.current_limits();
+                    crate::floating_panel::refresh(ui_dispatcher.clone());
                     crate::settings_window::publish_discovered_popup_bricks(
                         &limits,
                         ui_dispatcher.clone(),

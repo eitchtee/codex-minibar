@@ -8,6 +8,7 @@ pub(super) fn render(tab: Tab, ctx: &SettingsPageContext<'_>) -> Element {
         Tab::Providers => unreachable!("Providers drill-in uses provider_page_content"),
         Tab::Schedule => super::activation::render(ctx),
         Tab::Tray => super::tray::render(ctx),
+        Tab::FloatingPanel => super::floating_panel::render(ctx),
         Tab::Notifications => super::notifications::render(ctx),
         Tab::Advanced => super::advanced::render(ctx),
         Tab::Log => super::log::render(ctx),

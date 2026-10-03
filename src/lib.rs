@@ -6,6 +6,7 @@ pub mod claude_desktop;
 pub mod codex;
 pub mod cursor;
 pub mod discovery;
+pub mod floating_panel;
 pub mod grok;
 pub mod icons;
 pub mod kiro;

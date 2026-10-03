@@ -2,12 +2,33 @@ use super::*;
 
 #[test]
 fn tab_tags_keep_legacy_aliases() {
+    assert_eq!(Tab::from_tag("floating-panel"), Tab::FloatingPanel);
     assert_eq!(Tab::from_tag("popup"), Tab::Popup);
     assert_eq!(Tab::from_tag("customize"), Tab::Popup);
     assert_eq!(Tab::from_tag("schedule"), Tab::Schedule);
     assert_eq!(Tab::from_tag("limit-activation"), Tab::Schedule);
     assert_eq!(Tab::Appearance.tag(), "appearance");
     assert_eq!(Tab::from_tag("integrations"), Tab::Integrations);
+}
+
+#[test]
+fn floating_panel_has_an_independent_settings_page_in_both_icon_modes() {
+    for colored in [false, true] {
+        let items = navigation::root_nav_items("#123456", colored);
+        let item = items
+            .iter()
+            .find(|item| item.tag.as_deref() == Some("floating-panel"))
+            .unwrap();
+        assert_eq!(item.content, "Floating panel");
+        assert_eq!(
+            item.icon_path.as_ref().unwrap().0,
+            crate::icons::data("desktop")
+        );
+    }
+    assert_eq!(
+        RenderedPage::Root(Tab::FloatingPanel).page_key(),
+        "settings-page-floating-panel"
+    );
 }
 
 #[test]

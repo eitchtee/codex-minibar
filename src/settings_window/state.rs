@@ -2,6 +2,7 @@ use super::*;
 
 #[derive(Clone)]
 pub(super) struct SettingsWindowState {
+    pub(super) floating_panel: SetState<crate::floating_panel::FloatingPanelSettings>,
     pub(super) theme: SetState<AppTheme>,
     pub(super) accent_color: SetState<AccentColor>,
     pub(super) animations_enabled: SetState<bool>,
@@ -66,6 +67,7 @@ pub(super) struct SettingsWindowState {
 
 impl SettingsWindowState {
     pub(super) fn apply(&self, settings: &Settings) {
+        self.floating_panel.call(settings.floating_panel.clone());
         self.theme.call(settings.theme);
         self.accent_color.call(settings.accent_color);
         self.animations_enabled.call(settings.animations_enabled);
@@ -207,6 +209,8 @@ impl SettingsWindowState {
 /// The shell creates this once per render; page modules only consume it.
 #[derive(Clone)]
 pub(super) struct SettingsPageContext<'a> {
+    pub(super) floating_panel: &'a crate::floating_panel::FloatingPanelSettings,
+    pub(super) set_floating_panel: SetState<crate::floating_panel::FloatingPanelSettings>,
     pub(super) theme: AppTheme,
     pub(super) accent_color: AccentColor,
     pub(super) animations_enabled: bool,

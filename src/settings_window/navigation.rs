@@ -10,6 +10,7 @@ pub(super) enum Tab {
     Popup,
     Schedule,
     Tray,
+    FloatingPanel,
     Notifications,
     Advanced,
     Log,
@@ -26,6 +27,7 @@ impl Tab {
             Self::Popup => "customize",
             Self::Schedule => "schedule",
             Self::Tray => "tray",
+            Self::FloatingPanel => "floating-panel",
             Self::Notifications => "notifications",
             Self::Advanced => "advanced",
             Self::Log => "log",
@@ -38,6 +40,7 @@ impl Tab {
         match tag {
             "appearance" => Self::Appearance,
             "tray" => Self::Tray,
+            "floating-panel" => Self::FloatingPanel,
             "providers" => Self::Providers,
             "popup" | "customize" => Self::Popup,
             "schedule" | "limit-activation" => Self::Schedule,
@@ -121,10 +124,10 @@ pub(super) fn fade_to_rendered_page(
     });
 }
 
-pub(super) fn root_nav_items(nav_icon_color: &str, use_colored: bool) -> [NavViewItem; 11] {
+pub(super) fn root_nav_items(nav_icon_color: &str, use_colored: bool) -> [NavViewItem; 12] {
     let item = |label: &str, tag: &str| {
         let mut nav = NavViewItem::new(label).tag(tag);
-        if use_colored {
+        if use_colored && tag != "floating-panel" {
             nav = nav.icon_image_uri(crate::icons::fluent_color_uri(tag));
         } else {
             nav = nav.icon_path(
@@ -141,6 +144,7 @@ pub(super) fn root_nav_items(nav_icon_color: &str, use_colored: bool) -> [NavVie
         item("Customize", "customize"),
         item("Limit activation", "schedule"),
         item("Tray", "tray"),
+        item("Floating panel", "floating-panel"),
         item("Notifications", "notifications"),
         item("Appearance", "appearance"),
         item("Advanced", "advanced"),

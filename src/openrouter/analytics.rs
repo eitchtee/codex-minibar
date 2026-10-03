@@ -146,7 +146,10 @@ fn sync_accounts(cache: &mut Cache, revision: u64, accounts: &[(String, String)]
             };
         }
         if identity.is_empty() {
-            entry.error = Some("Add a management key to load usage statistics.".into());
+            // Account analytics is optional. API-only accounts still expose
+            // spending through /key; absence of analytics is not a failure.
+            // Also clear the warning persisted by older versions.
+            entry.error = None;
         }
     }
     cache.revision = revision;
@@ -997,6 +1000,21 @@ mod tests {
         );
         let round_trip: Cache = serde_json::from_str(&raw).unwrap();
         assert_eq!(statistics(&round_trip, 30), stats);
+    }
+
+    #[test]
+    fn missing_optional_management_key_is_not_a_usage_error() {
+        let mut cache = Cache::default();
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        let usage = statistics(&cache, 30);
+        assert!(usage.accounts["api-only"].error.is_none());
+        assert_eq!(usage.accounts["api-only"].history.requests, 0);
+
+        // Old persisted warnings must also disappear on the next cache sync.
+        cache.account_data.get_mut("api-only").unwrap().error =
+            Some("Add a management key to load usage statistics.".into());
+        sync_accounts(&mut cache, 1, &[("api-only".into(), String::new())]);
+        assert!(statistics(&cache, 30).accounts["api-only"].error.is_none());
     }
 
     #[test]

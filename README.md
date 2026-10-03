@@ -43,6 +43,9 @@ Codex Minibar reads quota data from locally authenticated provider sessions and 
 - Show five-hour and weekly usage in one or more configurable tray icons.
 - Choose numbers, bars, rings, reset times, or reset countdowns; show remaining or used
   percentage as appropriate.
+- Enable an independent floating quota panel in **Settings → Floating panel**. Pick up
+  to eight provider indicators, choose numbers/bars/rings and a size, keep it on top,
+  lock its saved screen position, or hide/show it with `Ctrl+Alt+M` (configurable).
 - Track Kiro's monthly included credits and reset date in its provider card and tray widget.
 - Open a compact native popup for the current plan, credits, limit windows, and local token
   statistics (today, the configured history window, and a compact activity bar chart).

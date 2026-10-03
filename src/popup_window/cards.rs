@@ -1981,6 +1981,11 @@ fn openrouter_account_usage(limits: &RateLimits, account: &str) -> Option<Elemen
         return None;
     }
     if contents.is_empty() {
+        // Spending works with an ordinary API key. Account analytics does not,
+        // so an API-only account must not display a perpetual loading message.
+        if !crate::openrouter::management_key_is_configured(account) {
+            return None;
+        }
         contents.push(
             caption("Loading usage statistics…")
                 .foreground(ThemeRef::TertiaryText)

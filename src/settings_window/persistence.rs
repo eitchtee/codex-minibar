@@ -48,6 +48,7 @@ pub(crate) fn try_persist_update_fallible(
         update(&mut settings)?;
         settings.normalize_tray_widgets();
         settings.normalize_popup_visibility();
+        settings.floating_panel.normalize();
         // Persist first so a flaky side effect cannot block live UI updates.
         settings.save(&path)?;
         if let Err(error) = settings.apply_runtime_effects() {
@@ -69,6 +70,7 @@ pub(super) fn replace_settings(
 ) -> anyhow::Result<()> {
     let path = Settings::default_path()?;
     settings.normalize_tray_widgets();
+    settings.floating_panel.normalize();
     settings.save(&path)?;
     if let Err(error) = settings.apply_runtime_effects() {
         eprintln!("failed to apply runtime settings effects: {error:#}");

@@ -44,6 +44,7 @@ mod activation;
 mod advanced;
 mod appearance;
 mod customize;
+mod floating_panel;
 mod general;
 mod integrations;
 mod log;
@@ -97,6 +98,7 @@ static DISCOVERED_POPUP_BRICKS: Mutex<BTreeMap<String, String>> = Mutex::new(BTr
 static OPENROUTER_SNAPSHOT: Mutex<Option<OpenRouterSettingsSnapshot>> = Mutex::new(None);
 
 thread_local! {
+    static REQUESTED_TAB: RefCell<Option<Tab>> = const { RefCell::new(None) };
     static HOST: RefCell<Option<Rc<ReactorHost>>> = const { RefCell::new(None) };
     static LIVE_SETTINGS_STATE: RefCell<Option<SettingsWindowState>> = const { RefCell::new(None) };
     static LIVE_OPENROUTER_SNAPSHOT: RefCell<Option<SetState<OpenRouterSettingsSnapshot>>> =
@@ -249,6 +251,17 @@ pub fn open(
     })
 }
 
+pub(crate) fn open_floating_panel(
+    settings_tx: Sender<Settings>,
+    usage_actions_tx: Sender<UsageAction>,
+    updates: Arc<UpdateController>,
+) -> windows_core::Result<()> {
+    REQUESTED_TAB.with(|tab| *tab.borrow_mut() = Some(Tab::FloatingPanel));
+    open(settings_tx, usage_actions_tx, updates)?;
+    windows_reactor::request_ui_rerender_on_ui_thread();
+    Ok(())
+}
+
 /// Opens the two-step first-launch flow. Choices stay local until Done so a
 /// dismissed onboarding window never half-configures provider workers.
 pub fn open_onboarding(settings_tx: Sender<Settings>) -> windows_core::Result<()> {
@@ -313,15 +326,24 @@ pub fn render(
             }
         });
     });
-    let (root_selected, set_root_selected) = cx.use_state(Tab::default());
+    let requested_tab = REQUESTED_TAB.with(|tab| tab.borrow_mut().take());
+    let initial_tab = requested_tab.unwrap_or_default();
+    let (root_selected, set_root_selected) = cx.use_state(initial_tab);
     let (nav_mode, set_nav_mode) = cx.use_state(SettingsNavMode::Root);
-    let (return_root_tab, set_return_root_tab) = cx.use_state(Tab::General);
+    let (return_root_tab, set_return_root_tab) = cx.use_state(initial_tab);
     let (selected_provider, set_selected_provider) = cx
         .use_state(first_provider_in_order(&settings.popup_order, |provider| {
             settings.providers.is_enabled(provider)
         }));
-    let (rendered_page, set_rendered_page) = cx.use_async_state(RenderedPage::default());
+    let (rendered_page, set_rendered_page) = cx.use_async_state(RenderedPage::Root(initial_tab));
     let (page_visible, set_page_visible) = cx.use_async_state(true);
+    if let Some(tab) = requested_tab {
+        set_nav_mode.call(SettingsNavMode::Root);
+        set_root_selected.call(tab);
+        set_return_root_tab.call(tab);
+        set_rendered_page.call(RenderedPage::Root(tab));
+        set_page_visible.call(true);
+    }
     let (log_content, set_log_content) = cx
         .use_async_state(crate::logger::tail_lines(100).unwrap_or_else(|error| error.to_string()));
     cx.use_effect((), move || {
@@ -803,6 +825,34 @@ pub fn render(
     let (total_spend_presentation, set_total_spend_presentation) =
         cx.use_state(settings.total_spend_presentation);
     let (show_account_name, set_show_account_name) = cx.use_state(settings.show_account_name);
+    let (floating_panel, set_floating_panel) = cx.use_state(settings.floating_panel.clone());
+    let (panel_editor, set_panel_editor) = cx.use_state(floating_panel.clone());
+    let (panel_editor_opacity, set_panel_editor_opacity) = cx.use_state(1.0);
+    let panel_editor_transition = cx.use_ref(None::<DispatcherTimer>);
+    let next_panel_editor = floating_panel.clone();
+    let panel_editor_layout_changed = panel_editor.metrics != floating_panel.metrics;
+    cx.use_effect(next_panel_editor.clone(), move || {
+        panel_editor_transition.set(None);
+        if panel_editor_layout_changed && crate::theme::animations_enabled() {
+            set_panel_editor_opacity.call(0.0);
+            let next = next_panel_editor.clone();
+            let apply = set_panel_editor.clone();
+            let opacity = set_panel_editor_opacity.clone();
+            match DispatcherTimer::new_one_shot(crate::theme::CONTROL_FASTER_ANIMATION, move || {
+                apply.call(next.clone());
+                opacity.call(1.0);
+            }) {
+                Ok(timer) => panel_editor_transition.set(Some(timer)),
+                Err(_) => {
+                    set_panel_editor.call(next_panel_editor);
+                    set_panel_editor_opacity.call(1.0);
+                }
+            }
+        } else {
+            set_panel_editor.call(next_panel_editor);
+            set_panel_editor_opacity.call(1.0);
+        }
+    });
     let (activation_success, set_activation_success) =
         cx.use_state(settings.notifications.activation_success);
     let (activation_failure, set_activation_failure) =
@@ -844,6 +894,7 @@ pub fn render(
     });
     LIVE_SETTINGS_STATE.with(|state| {
         *state.borrow_mut() = Some(SettingsWindowState {
+            floating_panel: set_floating_panel.clone(),
             theme: set_theme.clone(),
             accent_color: set_accent_color.clone(),
             animations_enabled: set_animations_enabled.clone(),
@@ -908,6 +959,8 @@ pub fn render(
     });
 
     let page_context = SettingsPageContext {
+        floating_panel: &panel_editor,
+        set_floating_panel: set_floating_panel.clone(),
         theme,
         accent_color,
         animations_enabled,
@@ -1082,6 +1135,14 @@ pub fn render(
     let settings_page_body = match rendered_page {
         RenderedPage::Root(tab) => render_page(tab, &page_context),
         RenderedPage::Provider(provider) => provider_page_content(provider, &page_context),
+    };
+    let settings_page_body = if rendered_page == RenderedPage::Root(Tab::FloatingPanel) {
+        border(settings_page_body)
+            .opacity(panel_editor_opacity)
+            .with_opacity_transition(duration(crate::theme::CONTROL_FASTER_ANIMATION))
+            .into()
+    } else {
+        settings_page_body
     };
 
     // Padding lives on tab content (inside the scroller), not on this pane, so

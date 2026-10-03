@@ -72,6 +72,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
     let apply_settings_import = settings_tx.clone();
     let apply_settings_reset = settings_tx.clone();
     let import_state = SettingsWindowState {
+        floating_panel: ctx.set_floating_panel.clone(),
         theme: set_theme,
         accent_color: set_accent_color,
         animations_enabled: set_animations_enabled,
