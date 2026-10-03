@@ -304,6 +304,13 @@ pub(super) enum ProviderDialogKind {
     RemoveOpenCodeKey {
         provider: ProviderKind,
     },
+    AddClaudeProfile,
+    RenameClaudeProfile {
+        profile_id: String,
+    },
+    RemoveClaudeProfile {
+        profile_id: String,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -680,6 +687,20 @@ fn persist_openrouter_credentials(
         };
     }
     Ok(())
+}
+
+/// Apply a Claude profile change against on-disk settings. The popup restarts
+/// the Claude worker whenever the saved list changes.
+fn persist_claude_profiles(
+    settings_tx: Sender<Settings>,
+    mutate: impl FnOnce(&mut Vec<ClaudeProfile>) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    try_persist_update_fallible(settings_tx, move |settings| {
+        let mut profiles = crate::claude::profiles_for_settings(settings);
+        mutate(&mut profiles)?;
+        settings.claude_profiles = profiles;
+        Ok(())
+    })
 }
 
 fn bump_opencode_credentials(
@@ -1262,6 +1283,11 @@ pub(super) fn provider_page_content(
         ProviderKind::OpenCodeZen | ProviderKind::OpenCodeGo => {
             opencode_sections(provider, status, ctx)
         }
+        ProviderKind::Claude => {
+            let mut sections = claude_profile_sections(ctx);
+            sections.extend(install_sections(provider, status, ctx));
+            sections
+        }
         _ => install_sections(provider, status, ctx),
     };
     let appearance_position = sections
@@ -1639,6 +1665,109 @@ fn opencode_sections(
         ),
     };
     out.push(provider_card(key_row).with_key("opencode-api-key"));
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Claude
+// ---------------------------------------------------------------------------
+
+fn claude_profile_sections(ctx: &SettingsPageContext<'_>) -> Vec<Element> {
+    let set_dialog = ctx.set_provider_dialog.clone();
+    let mut out = vec![
+        section_header(
+            "Profiles",
+            Some(
+                "Track several Claude accounts at once. Default follows this PC's Claude login; the others use a pasted credential.",
+            ),
+            Some(
+                Button::new("Add profile")
+                    .icon(Symbol::Add)
+                    .on_click(move || open_dialog(&set_dialog, ProviderDialogKind::AddClaudeProfile))
+                    .into(),
+            ),
+        )
+        .with_key("claude-profiles-header"),
+    ];
+    for profile in ctx.claude_profiles {
+        let on_toggled = {
+            let settings_tx = ctx.settings_tx.clone();
+            let profile_id = profile.id.clone();
+            move |enabled: bool| {
+                let profile_id = profile_id.clone();
+                if let Err(error) = persist_claude_profiles(settings_tx.clone(), move |profiles| {
+                    if let Some(profile) = profiles.iter_mut().find(|saved| saved.id == profile_id)
+                    {
+                        profile.enabled = enabled;
+                    }
+                    Ok(())
+                }) {
+                    eprintln!("failed to save Claude profile: {error:#}");
+                }
+            }
+        };
+        let mut trailing: Vec<Element> = vec![
+            ToggleSwitch::new(profile.enabled)
+                .on_content("")
+                .off_content("")
+                .on_toggled(on_toggled)
+                .min_width(0.0)
+                .max_width(50.0)
+                .width(50.0)
+                .vertical_alignment(VerticalAlignment::Center)
+                .into(),
+        ];
+        {
+            // Renaming never touches the saved credential.
+            let set_dialog = ctx.set_provider_dialog.clone();
+            let profile_id = profile.id.clone();
+            let name = profile.name.clone();
+            trailing.push(
+                Button::new("Rename")
+                    .on_click(move || {
+                        set_dialog.call(Some(ProviderDialog::with_name(
+                            ProviderDialogKind::RenameClaudeProfile {
+                                profile_id: profile_id.clone(),
+                            },
+                            name.clone(),
+                        )))
+                    })
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .into(),
+            );
+        }
+        if !profile.is_default() {
+            let set_dialog = ctx.set_provider_dialog.clone();
+            let profile_id = profile.id.clone();
+            trailing.push(
+                Button::new("Remove")
+                    .on_click(move || {
+                        open_dialog(
+                            &set_dialog,
+                            ProviderDialogKind::RemoveClaudeProfile {
+                                profile_id: profile_id.clone(),
+                            },
+                        )
+                    })
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .into(),
+            );
+        }
+        let detail = if profile.is_default() {
+            "Uses this PC's Claude Code or desktop app login."
+        } else {
+            "Uses a credential saved in Windows user storage."
+        };
+        out.push(
+            provider_card(provider_row(
+                None,
+                profile.name.clone(),
+                vec![secondary_text(detail).into()],
+                trailing,
+            ))
+            .with_key(format!("claude-profile-{}", profile.id)),
+        );
+    }
     out
 }
 
@@ -2427,6 +2556,35 @@ pub(super) fn provider_dialog_overlay(
             );
             ("Remove API key?".to_owned(), "Remove", true)
         }
+        ProviderDialogKind::AddClaudeProfile => {
+            fields.push(dialog_name_box(
+                dialog,
+                Some("Shown on the profile's card and tab in Minibar."),
+                on_submit.clone(),
+            ));
+            fields.push(dialog_password(
+                dialog,
+                DialogField::Key,
+                "Credential",
+                "sessionKey, sk-ant-oat…, or sk-ant-admin…",
+                "A claude.ai sessionKey cookie, an OAuth token, or an Admin API key. Minibar checks it, then saves it in Windows user storage.",
+                on_submit.clone(),
+            ));
+            ("Add Claude profile".to_owned(), "Check and save", false)
+        }
+        ProviderDialogKind::RenameClaudeProfile { .. } => {
+            fields.push(dialog_name_box(dialog, None, on_submit.clone()));
+            ("Rename profile".to_owned(), "Rename", false)
+        }
+        ProviderDialogKind::RemoveClaudeProfile { .. } => {
+            fields.push(
+                secondary_text(
+                    "Minibar forgets this profile and its saved credential. Nothing changes on Claude.",
+                )
+                .into(),
+            );
+            ("Remove profile?".to_owned(), "Remove", true)
+        }
     };
     if let Some(error) = &dialog.error {
         fields.push(
@@ -2924,6 +3082,98 @@ fn submit_provider_dialog(
                 &actions,
                 DialogOutcome {
                     notice: "API key removed.".into(),
+                    expand_card: None,
+                },
+            );
+        }
+        ProviderDialogKind::AddClaudeProfile => {
+            let name = inputs.name.trim().to_owned();
+            let credential = inputs.key.trim().to_owned();
+            if name.is_empty() {
+                return fail("Give the profile a name.");
+            }
+            if credential.is_empty() {
+                return fail("Paste a credential first.");
+            }
+            let settings_tx = actions.settings_tx.clone();
+            run_dialog_work(dialog, actions, move || {
+                // Checked first: the credential check below costs a request.
+                let name_taken = Settings::default_path()
+                    .and_then(|path| Settings::load_or_create(&path))
+                    .is_ok_and(|settings| {
+                        crate::claude::profiles_for_settings(&settings)
+                            .iter()
+                            .any(|saved| saved.name == name)
+                    });
+                anyhow::ensure!(!name_taken, "A profile with this name already exists.");
+                crate::claude::verify_credential(&credential)?;
+                let profile = ClaudeProfile::new(name.clone());
+                let profile_id = profile.id.clone();
+                crate::claude::save_profile_credential(&profile_id, Some(&credential))?;
+                if let Err(error) = persist_claude_profiles(settings_tx, move |profiles| {
+                    profiles.push(profile);
+                    Ok(())
+                }) {
+                    // Never leave a credential behind without its profile.
+                    let _ = crate::claude::save_profile_credential(&profile_id, None);
+                    return Err(error);
+                }
+                Ok(DialogOutcome {
+                    notice: format!(
+                        "Added {name}. Its credential is saved in Windows user storage."
+                    ),
+                    expand_card: None,
+                })
+            });
+        }
+        ProviderDialogKind::RenameClaudeProfile { profile_id } => {
+            let name = inputs.name.trim().to_owned();
+            if name.is_empty() {
+                return fail("Give the profile a name.");
+            }
+            if let Err(error) =
+                persist_claude_profiles(actions.settings_tx.clone(), move |profiles| {
+                    anyhow::ensure!(
+                        !profiles
+                            .iter()
+                            .any(|saved| saved.id != profile_id && saved.name == name),
+                        "A profile with this name already exists."
+                    );
+                    if let Some(profile) = profiles.iter_mut().find(|saved| saved.id == profile_id)
+                    {
+                        profile.name = name;
+                    }
+                    Ok(())
+                })
+            {
+                return fail(&format!("Could not rename the profile: {error:#}"));
+            }
+            finish_dialog(
+                &actions,
+                DialogOutcome {
+                    notice: "Profile renamed.".into(),
+                    expand_card: None,
+                },
+            );
+        }
+        ProviderDialogKind::RemoveClaudeProfile { profile_id } => {
+            let removed_id = profile_id.clone();
+            if let Err(error) =
+                persist_claude_profiles(actions.settings_tx.clone(), move |profiles| {
+                    profiles.retain(|profile| profile.id != removed_id);
+                    Ok(())
+                })
+            {
+                return fail(&format!("Could not remove the profile: {error:#}"));
+            }
+            // The profile is gone either way; a leftover credential is unused.
+            if let Err(error) = crate::claude::save_profile_credential(&profile_id, None) {
+                eprintln!("failed to delete the Claude profile credential: {error:#}");
+            }
+            finish_dialog(
+                &actions,
+                DialogOutcome {
+                    notice: "Profile removed.".into(),
                     expand_card: None,
                 },
             );

@@ -19,6 +19,7 @@ pub(super) struct SettingsWindowState {
     pub(super) grok_enabled: SetState<bool>,
     pub(super) kiro_enabled: SetState<bool>,
     pub(super) openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
+    pub(super) claude_profiles: SetState<Vec<ClaudeProfile>>,
     pub(super) codex_path: SetState<String>,
     pub(super) claude_path: SetState<String>,
     pub(super) cursor_path: SetState<String>,
@@ -94,6 +95,8 @@ impl SettingsWindowState {
             .call(settings.providers.is_enabled(ProviderKind::Kiro));
         self.openrouter_accounts
             .call(crate::openrouter::accounts_for_settings(settings));
+        self.claude_profiles
+            .call(crate::claude::profiles_for_settings(settings));
         self.codex_path.call(
             settings
                 .codex_path
@@ -241,6 +244,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) grok_install_status: &'a ProviderInstallStatus,
     pub(super) kiro_install_status: &'a ProviderInstallStatus,
     pub(super) openrouter_accounts: &'a [OpenRouterAccount],
+    pub(super) claude_profiles: &'a [ClaudeProfile],
     pub(super) openrouter_snapshot: &'a OpenRouterSettingsSnapshot,
     pub(super) expanded_provider_cards: &'a [String],
     pub(super) provider_notice: &'a Option<String>,
@@ -311,6 +315,7 @@ pub(super) struct SettingsPageContext<'a> {
     pub(super) set_grok_enabled: SetState<bool>,
     pub(super) set_kiro_enabled: SetState<bool>,
     pub(super) set_openrouter_accounts: SetState<Vec<OpenRouterAccount>>,
+    pub(super) set_claude_profiles: SetState<Vec<ClaudeProfile>>,
     pub(super) set_expanded_provider_cards: AsyncSetState<Vec<String>>,
     pub(super) set_provider_dialog: AsyncSetState<Option<ProviderDialog>>,
     pub(super) set_provider_notice: AsyncSetState<Option<String>>,
