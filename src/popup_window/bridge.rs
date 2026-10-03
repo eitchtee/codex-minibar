@@ -49,6 +49,18 @@ fn notify_new_forced_reset_info(
     }
 }
 
+/// The tracker for one Claude profile, named so its toasts say which account
+/// they are about.
+fn claude_profile_tracker<'a>(
+    trackers: &'a mut HashMap<String, LimitNotificationTracker>,
+    profile: &crate::limits::ClaudeProfileSnapshot,
+) -> &'a mut LimitNotificationTracker {
+    trackers
+        .entry(format!("claude:{}", profile.id))
+        .or_default()
+        .named(format!("Claude · {}", profile.name))
+}
+
 pub(super) fn update_available_from_phase(phase: &UpdatePhase) -> bool {
     matches!(phase, UpdatePhase::Available(_))
 }
@@ -102,7 +114,9 @@ pub(super) fn start_background_bridge(
         let mut tray = TrayManager::new();
         let fallback_attempt = state.last_activation_at;
         let mut notification_settings = state.settings.notifications.clone();
-        let mut limit_notifications = HashMap::<ProviderKind, LimitNotificationTracker>::new();
+        // Keyed by provider id, or by profile for a multi-profile provider.
+        let mut limit_notifications = HashMap::<String, LimitNotificationTracker>::new();
+        let mut notified_claude_profiles = state.settings.claude_profiles.clone();
         let mut pending_auto_activation_successes = HashSet::<ProviderKind>::new();
         let mut forced_reset_notified_ids = HashSet::<String>::new();
         let mut usage_clear_generation = 0_u64;
@@ -738,22 +752,41 @@ pub(super) fn start_background_bridge(
                     }
                     let combine_activation_notification =
                         pending_auto_activation_successes.remove(&provider);
-                    let notification_result = if combine_activation_notification {
+                    // With several Claude profiles each one is tracked by
+                    // itself and named in its toasts. The first profile is
+                    // also the provider-level snapshot observed here.
+                    if provider == ProviderKind::Claude
+                        && notified_claude_profiles != ui.claude_profiles
+                    {
+                        // A tracker primed on one account must not compare
+                        // its reset time with a different account's.
+                        notified_claude_profiles = ui.claude_profiles.clone();
                         limit_notifications
-                            .entry(provider)
-                            .or_default()
-                            .observe_with_primary_reset_deferred(
-                                limits.get(provider),
-                                &notification_settings,
-                                provider,
-                            )
-                    } else {
-                        limit_notifications.entry(provider).or_default().observe(
+                            .retain(|key, _| !key.starts_with(ProviderKind::Claude.id()));
+                    }
+                    let profiles = &limits.get(provider).claude_profiles;
+                    let tracker = match profiles.first() {
+                        Some(profile) => claude_profile_tracker(&mut limit_notifications, profile),
+                        None => limit_notifications
+                            .entry(provider.id().to_owned())
+                            .or_default(),
+                    };
+                    let notification_result = if combine_activation_notification {
+                        tracker.observe_with_primary_reset_deferred(
                             limits.get(provider),
                             &notification_settings,
                             provider,
                         )
+                    } else {
+                        tracker.observe(limits.get(provider), &notification_settings, provider)
                     };
+                    for profile in profiles.iter().skip(1) {
+                        claude_profile_tracker(&mut limit_notifications, profile).observe(
+                            &profile.limits,
+                            &notification_settings,
+                            provider,
+                        );
+                    }
                     if combine_activation_notification {
                         if notification_result.primary_reset {
                             notifications::show_activation_succeeded_after_reset(provider);
