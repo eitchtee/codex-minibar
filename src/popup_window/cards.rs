@@ -211,8 +211,9 @@ pub(super) fn provider_cards(
                         .filter(|_| spending_visible)
                     {
                         let title = api_key
-                            .label
+                            .local_name
                             .as_deref()
+                            .or(api_key.label.as_deref())
                             .map(str::trim)
                             .filter(|label| !label.is_empty())
                             .map(str::to_owned)
@@ -749,7 +750,7 @@ pub(super) fn openrouter_accounts_strip_key(limits: &RateLimits) -> String {
         for api_key in &account.api_keys {
             key.push('\u{1e}');
             key.push_str(&api_key.id);
-            if let Some(label) = api_key.label.as_deref() {
+            if let Some(label) = api_key.local_name.as_deref().or(api_key.label.as_deref()) {
                 key.push(':');
                 key.push_str(label);
             }

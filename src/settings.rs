@@ -684,6 +684,8 @@ pub struct OpenRouterAccount {
     /// Stable identities for the account's API keys. The key material itself
     /// lives in the protected provider secret store.
     pub api_key_ids: Vec<String>,
+    /// Optional local display names, keyed by the stable API-key identity.
+    pub api_key_names: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for OpenRouterAccount {
@@ -698,6 +700,7 @@ impl OpenRouterAccount {
             id: new_openrouter_id("account"),
             name: name.into(),
             api_key_ids: vec![new_openrouter_id("api")],
+            api_key_names: Default::default(),
         }
     }
 
@@ -707,6 +710,7 @@ impl OpenRouterAccount {
             id: "legacy".into(),
             name: "OpenRouter account".into(),
             api_key_ids: vec!["legacy".into()],
+            api_key_names: Default::default(),
         }
     }
 
@@ -734,6 +738,12 @@ impl OpenRouterAccount {
             ids.push(id);
         }
         self.api_key_ids = ids;
+        let before = self.api_key_names.clone();
+        self.api_key_names.retain(|id, name| {
+            *name = name.trim().to_owned();
+            self.api_key_ids.contains(id) && !name.is_empty()
+        });
+        changed |= before != self.api_key_names;
         changed
     }
 }
