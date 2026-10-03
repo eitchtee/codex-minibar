@@ -1217,6 +1217,24 @@ fn popup_startup_snapshots_restore_enabled_layout_and_saved_columns() {
 }
 
 #[test]
+fn popup_first_frame_excludes_openrouter_usage_without_a_management_key() {
+    let mut settings = Settings::default();
+    settings.set_usage_stats_provider_enabled(ProviderKind::Claude, false);
+    assert!(settings.openrouter_accounts.is_empty());
+    // Raw preferences may still include OpenRouter in an existing settings
+    // file. The first render must use the same effective filter as live updates.
+    assert!(settings.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+    let initial = UiState::popup_layout_from_settings(&settings);
+    assert!(!initial.usage_stats_provider_enabled(ProviderKind::OpenRouter));
+    assert!(!initial.usage_stats_provider_enabled(ProviderKind::Claude));
+    assert!(initial.usage_stats_provider_enabled(ProviderKind::Codex));
+    assert_eq!(
+        initial.usage_stats_excluded_providers,
+        settings.effective_usage_stats_excluded_providers()
+    );
+}
+
+#[test]
 fn pager_native_host_identity_survives_outgoing_page_removal() {
     let current: Element = scroll_viewer(caption("provider"))
         .with_key(popup_page_host_key("current"))

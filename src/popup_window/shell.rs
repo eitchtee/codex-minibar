@@ -30,7 +30,6 @@ pub fn app(cx: &mut RenderCx, state: Arc<AppState>) -> Element {
         compact_usage_cards: state.settings.compact_usage_cards,
         popup_visibility: state.settings.popup_visibility.clone(),
         usage_stats_enabled: state.settings.usage_stats_enabled,
-        usage_stats_excluded_providers: state.settings.usage_stats_excluded_providers.clone(),
         show_total_spend_on_all_tab: state.settings.show_total_spend_on_all_tab,
         total_spend_presentation: state.settings.total_spend_presentation,
         total_spend_period: state.settings.total_spend_period,

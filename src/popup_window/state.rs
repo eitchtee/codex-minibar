@@ -416,9 +416,11 @@ impl Default for UiState {
 
 impl UiState {
     /// Shared seed for both the render tree and the background bridge. The
-    /// bridge publishes a complete snapshot, so it must restore layout too.
+    /// bridge publishes a complete snapshot, so it must restore layout and
+    /// effective usage eligibility before either path can produce a first frame.
     pub(super) fn popup_layout_from_settings(settings: &Settings) -> Self {
         Self {
+            usage_stats_excluded_providers: settings.effective_usage_stats_excluded_providers(),
             popup_two_columns: settings.popup_two_columns,
             popup_right_column: settings.popup_right_column.clone(),
             ..Self::default()

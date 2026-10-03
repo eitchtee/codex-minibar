@@ -8067,6 +8067,25 @@ impl windows_core::RuntimeType for IFrameworkElement {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IFrameworkElement {
+    pub(crate) fn LayoutUpdated<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: EventHandler<windows_core::IInspectable> = {
+            let com = windows_core::imp::DelegateBox::<EventHandler<windows_core::IInspectable>, F>::new(
+                &EventHandlerBox::<windows_core::IInspectable, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut token = 0;
+            (windows_core::Interface::vtable(self).LayoutUpdated)(
+                windows_core::Interface::as_raw(self), windows_core::Interface::as_raw(&handler), &mut token,
+            ).ok()?;
+            Ok(windows_core::EventRevoker::new(self.clone(), token, windows_core::Interface::vtable(self).RemoveLayoutUpdated))
+        }
+    }
     pub(crate) fn Resources(&self) -> windows_core::Result<ResourceDictionary> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -8437,8 +8456,10 @@ pub struct IFrameworkElement_Vtbl {
     ) -> windows_core::HRESULT,
     pub RemoveSizeChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
-    LayoutUpdated: usize,
-    RemoveLayoutUpdated: usize,
+    pub LayoutUpdated: unsafe extern "system" fn(
+        *mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveLayoutUpdated: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     Loading: usize,
     RemoveLoading: usize,
     pub ActualThemeChanged: unsafe extern "system" fn(
