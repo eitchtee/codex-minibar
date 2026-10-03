@@ -325,7 +325,7 @@ fn query(
     granularity: Option<&str>,
 ) -> Result<String> {
     let mut body = json!({
-        "metrics": ["request_count", "total_usage", "tokens_prompt", "tokens_completion", "cached_tokens"],
+        "metrics": ["request_count", "credits_usage", "tokens_prompt", "tokens_completion", "cached_tokens"],
         "dimensions": ["model"],
         "limit": 10000,
         "time_range": {
@@ -424,7 +424,24 @@ fn refresh_account(
             continue;
         }
         let models = if start < now {
-            parse(&fetch(start, end.min(now), None)?)?
+            // Unbucketed queries use coarse UTC rollups. A local day crossing
+            // UTC midnight can include the same rollup in neighboring days.
+            // Hour/minute queries use explicit timestamps; only aggregate the
+            // buckets inside this exact, non-overlapping local-day interval.
+            let granularity = if start.timestamp().rem_euclid(3600) == 0
+                && end.timestamp().rem_euclid(3600) == 0
+            {
+                "hour"
+            } else {
+                "minute"
+            };
+            let query_end = end.min(now);
+            let body = fetch(start, query_end, Some(granularity))?;
+            let mut models = BTreeMap::<String, TokenUsage>::new();
+            for row in parse_hourly(&body, granularity, start, query_end)? {
+                models.entry(row.model).or_default().add(&row.usage);
+            }
+            models
         } else {
             BTreeMap::new()
         };
@@ -545,14 +562,14 @@ fn row_usage(row: &Value) -> Result<(String, TokenUsage)> {
         .context("OpenRouter analytics missing model")?;
     let requests = count(row, "request_count")?;
     let cost = row
-        .get("total_usage")
-        .context("OpenRouter analytics missing total_usage")?;
+        .get("credits_usage")
+        .context("OpenRouter analytics missing credits_usage")?;
     let cost = if let Some(s) = cost.as_str() {
         s.parse::<f64>().ok()
     } else {
         cost.as_f64()
     }
-    .context("OpenRouter analytics invalid total_usage")?;
+    .context("OpenRouter analytics invalid credits_usage")?;
     ensure!(
         cost.is_finite() && cost >= 0.0 && cost * 1_000_000.0 < i64::MAX as f64,
         "OpenRouter analytics invalid cost"
@@ -570,6 +587,7 @@ fn row_usage(row: &Value) -> Result<(String, TokenUsage)> {
         },
     ))
 }
+#[cfg(test)]
 fn parse(body: &str) -> Result<BTreeMap<String, TokenUsage>> {
     let mut models: BTreeMap<String, TokenUsage> = BTreeMap::new();
     for row in rows(body)? {
@@ -619,8 +637,39 @@ fn parse_hourly(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn daily_history_requires_time_buckets_instead_of_overlapping_rollup_totals() {
+        let now = boundaries(Local::now().date_naive()).unwrap().0 + Duration::hours(12);
+        let mut account = AccountCache::default();
+        refresh_account(&mut account, 30, now, |start, _, granularity| {
+            assert!(
+                granularity.is_some(),
+                "Unbucketed daily queries can count neighboring UTC days twice"
+            );
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
+        })
+        .unwrap();
+        assert_eq!(account.days.len(), 90);
+        assert!(
+            account
+                .days
+                .values()
+                .all(|day| day.models["test/model"].requests == 2)
+        );
+    }
+    #[test]
+    fn reported_cost_uses_account_credit_charges_instead_of_total_byok_value() {
+        let (_, usage) = row_usage(&json!({
+            "model": "test/model", "request_count": 2,
+            "total_usage": "26.07", "credits_usage": "15.44",
+            "tokens_prompt": 100, "tokens_completion": 20, "cached_tokens": 40,
+        }))
+        .unwrap();
+        assert_eq!(usage.estimated_cost_microusd, 15_440_000);
+    }
     fn fixture(at: &str, field: &str) -> Value {
-        let mut row = json!({"model":"test/model","request_count":"2","total_usage":"0.123456","tokens_prompt":"100","tokens_completion":20,"cached_tokens":40});
+        let mut row = json!({"model":"test/model","request_count":"2","credits_usage":"0.123456","tokens_prompt":"100","tokens_completion":20,"cached_tokens":40});
         row[field] = json!(at);
         row
     }
@@ -1006,25 +1055,23 @@ mod tests {
         let now = boundaries(Local::now().date_naive()).unwrap().0 + Duration::hours(12);
         let mut account = AccountCache::default();
         let mut requests = 0;
-        let result = refresh_account(&mut account, 30, now, |_, _, _| {
+        let result = refresh_account(&mut account, 30, now, |start, _, granularity| {
             requests += 1;
             if requests == 3 {
                 anyhow::bail!("429");
             }
-            Ok(envelope(vec![fixture("unused", "unused")]))
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
         });
         assert!(result.is_err());
         assert_eq!(account.days.len(), 2);
         let encoded = serde_json::to_string(&account).unwrap();
         let mut restored: AccountCache = serde_json::from_str(&encoded).unwrap();
         let mut resumed = 0;
-        refresh_account(&mut restored, 30, now, |_, _, granularity| {
+        refresh_account(&mut restored, 30, now, |start, _, granularity| {
             resumed += 1;
-            Ok(if granularity.is_some() {
-                envelope(vec![])
-            } else {
-                envelope(vec![fixture("unused", "unused")])
-            })
+            let field = format!("date__{}", granularity.unwrap());
+            Ok(envelope(vec![fixture(&start.to_rfc3339(), &field)]))
         })
         .unwrap();
         assert_eq!(resumed, 89); // 88 remaining daily queries + hourly snapshot.

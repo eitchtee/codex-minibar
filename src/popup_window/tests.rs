@@ -765,7 +765,72 @@ fn forbidden_provider_error_is_shortened_for_ui() {
 
     assert_eq!(
         ui.provider_error(ProviderKind::Codex),
-        Some("403 Forbidden")
+        Some("Access denied by the provider (HTTP 403).")
+    );
+}
+
+#[test]
+fn repeated_network_failures_become_one_readable_provider_error() {
+    let raw = "OpenRouter quota refresh failed: TEST: request https://openrouter.ai/api/v1/key: Connection Failed: Connect error: A connection attempt failed because the connected party did not properly respond (os error 10060); ".repeat(3);
+    let mut ui = UiState::default();
+    ui.set_provider_error(ProviderKind::OpenRouter, raw.clone());
+    assert_eq!(
+        ui.provider_error(ProviderKind::OpenRouter),
+        Some("The request timed out. Try refreshing again.")
+    );
+    ui.clear_provider_error(ProviderKind::OpenRouter);
+    ui.set_usage_error(ProviderKind::OpenRouter, raw);
+    assert_eq!(
+        ui.provider_error(ProviderKind::OpenRouter),
+        Some("The request timed out. Try refreshing again.")
+    );
+}
+
+#[test]
+fn provider_errors_explain_http_failures_and_deduplicate_server_errors() {
+    for (raw, expected) in [
+        (
+            "request failed: status code 401",
+            "Authentication failed. Sign in again or update the provider key.",
+        ),
+        (
+            "HTTP 429; HTTP 429; rate limited",
+            "Too many requests. Wait a few minutes before refreshing again.",
+        ),
+        (
+            "directory: HTTP 500; credits: HTTP 503; HTTP 500",
+            "The provider is temporarily unavailable. Try again later.",
+        ),
+        (
+            "Network Error: connection forcibly closed by remote host (os error 10054)",
+            "The provider closed the connection. Try refreshing again.",
+        ),
+        (
+            "parse OpenRouter analytics: invalid JSON response",
+            "The provider returned an unexpected response. Try refreshing again.",
+        ),
+    ] {
+        assert_eq!(UiState::error_for_ui(raw), expected);
+    }
+    assert_eq!(
+        UiState::error_for_ui("API key: HTTP 401; credits: timed out; directory: timed out"),
+        "The request timed out. Try refreshing again.\nAuthentication failed. Sign in again or update the provider key."
+    );
+}
+
+#[test]
+fn unknown_technical_dumps_stay_in_log_but_short_domain_errors_remain_visible() {
+    assert_eq!(
+        UiState::error_for_ui(&"unrecognized diagnostic context; ".repeat(20)),
+        "The request failed. See Log for details."
+    );
+    assert_eq!(
+        UiState::error_for_ui("Could not load https://provider.example/internal-request"),
+        "The request failed. See Log for details."
+    );
+    assert_eq!(
+        UiState::error_for_ui("This account no longer exists."),
+        "This account no longer exists."
     );
 }
 
@@ -779,7 +844,7 @@ fn usage_error_uses_provider_error_presentation_without_overwriting_quota_error(
     );
     assert_eq!(
         ui.provider_error(ProviderKind::OpenRouter),
-        Some("OpenRouter analytics request failed: TLS certificate error")
+        Some("The secure connection could not be verified. See Log for details.")
     );
     assert!(ui.has_provider_error(ProviderKind::OpenRouter));
 
@@ -792,7 +857,7 @@ fn usage_error_uses_provider_error_presentation_without_overwriting_quota_error(
     ui.clear_provider_error(ProviderKind::OpenRouter);
     assert_eq!(
         ui.provider_error(ProviderKind::OpenRouter),
-        Some("OpenRouter analytics request failed: TLS certificate error")
+        Some("The secure connection could not be verified. See Log for details.")
     );
 
     ui.clear_usage_error(ProviderKind::OpenRouter);
@@ -817,14 +882,14 @@ fn nested_usage_errors_are_promoted_to_provider_error_state() {
 }
 
 #[test]
-fn non_forbidden_provider_error_keeps_its_detail() {
+fn provider_timeout_has_a_readable_message() {
     let mut ui = UiState::default();
 
     ui.set_provider_error(ProviderKind::Codex, "Codex app-server response timed out");
 
     assert_eq!(
         ui.provider_error(ProviderKind::Codex),
-        Some("Codex app-server response timed out")
+        Some("The request timed out. Try refreshing again.")
     );
 }
 
