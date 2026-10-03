@@ -83,12 +83,18 @@ pub fn start_provider_worker(
             let executable = crate::claude::first_available(settings.claude_path.as_deref())
                 .unwrap_or_else(|| PathBuf::from("claude"));
             crate::logger::info(format!("Claude executable: {}", executable.display()));
+            let profiles = crate::claude::profiles_for_settings(settings);
+            // Activation starts a session with the local Claude login, so it
+            // only applies while the default profile is the one being read.
+            let default_enabled = profiles
+                .iter()
+                .any(|profile| profile.is_default() && profile.enabled);
             worker::start_worker(
-                ClaudeClient::new(),
+                ClaudeClient::with_profiles(profiles),
                 ClaudeClient::new(),
                 ClaudeActivator::new(Some(executable)),
                 activation_path,
-                automatic_activation,
+                automatic_activation && default_enabled,
                 schedules_for(provider, settings),
                 auto_activation_pauses_for(provider, settings),
                 settings.history_retention_days,
