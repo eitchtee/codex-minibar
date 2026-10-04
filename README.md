@@ -89,7 +89,7 @@ Browser-session access is not used.
 
 ### Add another Claude account
 
-Open **Settings → Providers → Claude → Add profile**, give the account a name,
+Open **Settings → Providers → Claude → Add account**, give the account a name,
 and choose a connection method. The dialog includes instructions and clickable help links.
 The built-in **Default** profile follows this PC's Claude Code or desktop login;
 you can turn it off without removing your other profiles.
@@ -114,7 +114,8 @@ you can turn it off without removing your other profiles.
   access and is not a substitute for this login token.
 
 Click **Check and save**. Home shows the enabled profiles; the Claude tab lets you
-switch between them. Use **Manage → Update credential** when a cookie or token expires:
+switch between them. Expand the account card to change its name, toggle **Show on Home**,
+or use **Update credential** when a cookie or token expires:
 Minibar keeps the profile's name and enabled state. Pasted OAuth tokens are not
 automatically refreshed. API keys and Admin API keys are not offered for subscription
 account setup; organization API spending is a different metric.

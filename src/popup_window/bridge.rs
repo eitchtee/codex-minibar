@@ -169,10 +169,12 @@ pub(super) fn start_background_bridge(
             openrouter_credentials_revision: state.settings.openrouter_credentials_revision,
             popup_order: state.settings.popup_order.clone(),
             use_colored_provider_icons: state.settings.use_colored_provider_icons,
+            show_accounts_as_tabs: state.settings.show_accounts_as_tabs,
             replace_chatgpt_logo_with_codex: state.settings.replace_chatgpt_logo_with_codex,
             codex_path: state.settings.codex_path.clone(),
             claude_path: state.settings.claude_path.clone(),
             claude_profiles: state.settings.claude_profiles.clone(),
+            claude_home_excluded_profiles: state.settings.claude_home_excluded_profiles.clone(),
             claude_credentials_revision: state.settings.claude_credentials_revision,
             cursor_path: state.settings.cursor_path.clone(),
             antigravity_path: state.settings.antigravity_path.clone(),
@@ -305,6 +307,7 @@ pub(super) fn start_background_bridge(
             ui.popup_two_columns = settings.popup_two_columns;
             ui.popup_right_column = settings.popup_right_column.clone();
             ui.use_colored_provider_icons = settings.use_colored_provider_icons;
+            ui.show_accounts_as_tabs = settings.show_accounts_as_tabs;
             ui.replace_chatgpt_logo_with_codex = settings.replace_chatgpt_logo_with_codex;
             *notification_settings = settings.notifications.clone();
             state.sync_reset_feed(&settings);
@@ -351,6 +354,7 @@ pub(super) fn start_background_bridge(
             ui.codex_path = settings.codex_path.clone();
             ui.claude_path = settings.claude_path.clone();
             ui.claude_profiles = settings.claude_profiles.clone();
+            ui.claude_home_excluded_profiles = settings.claude_home_excluded_profiles.clone();
             ui.claude_credentials_revision = settings.claude_credentials_revision;
             ui.cursor_path = settings.cursor_path.clone();
             ui.antigravity_path = settings.antigravity_path.clone();

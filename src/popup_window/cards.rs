@@ -1,5 +1,28 @@
 use super::*;
 
+/// Filter a copy for Home only. The canonical quota snapshots remain intact.
+pub(super) fn claude_limits_for_home(
+    limits: &RateLimits,
+    saved: &[crate::settings::ClaudeProfile],
+    excluded: &[String],
+) -> Option<RateLimits> {
+    let enabled = claude_account_tabs(saved);
+    let is_visible = |id: &str| {
+        enabled.iter().any(|p| p.id == id) && !excluded.iter().any(|hidden| hidden == id)
+    };
+    if limits.claude_profiles.is_empty() {
+        // Legacy single-Default snapshots, and the placeholder before the
+        // first multi-profile read, describe only the first enabled account.
+        return enabled
+            .first()
+            .filter(|p| is_visible(&p.id))
+            .map(|_| limits.clone());
+    }
+    let mut filtered = limits.clone();
+    filtered.claude_profiles.retain(|p| is_visible(&p.id));
+    (!filtered.claude_profiles.is_empty()).then_some(filtered)
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct ResetCardReveal {
     key: Option<String>,

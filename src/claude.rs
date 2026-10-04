@@ -210,7 +210,11 @@ fn terminate(child: &mut Child) {
 /// Profiles in display order. The default profile is implied until the user
 /// changes it, so existing settings files keep working unchanged.
 pub fn profiles_for_settings(settings: &Settings) -> Vec<ClaudeProfile> {
-    let mut profiles = settings.claude_profiles.clone();
+    profiles_with_default(&settings.claude_profiles)
+}
+
+pub(crate) fn profiles_with_default(saved: &[ClaudeProfile]) -> Vec<ClaudeProfile> {
+    let mut profiles = saved.to_vec();
     if !profiles.iter().any(ClaudeProfile::is_default) {
         profiles.insert(
             0,
@@ -222,6 +226,17 @@ pub fn profiles_for_settings(settings: &Settings) -> Vec<ClaudeProfile> {
         );
     }
     profiles
+}
+
+pub(crate) fn set_home_profile_visibility(
+    excluded: &mut Vec<String>,
+    profile_id: &str,
+    visible: bool,
+) {
+    excluded.retain(|id| id != profile_id);
+    if !visible {
+        excluded.push(profile_id.to_owned());
+    }
 }
 
 pub fn save_profile_credential(profile_id: &str, value: Option<&str>) -> Result<()> {

@@ -1659,6 +1659,8 @@ pub struct Settings {
     /// Brand-colored provider glyphs in the popup. Settings expose the inverse
     /// as "Use monochrome icons".
     pub use_colored_provider_icons: bool,
+    #[serde(default)]
+    pub show_accounts_as_tabs: bool,
     /// Fluent Color glyphs in the Settings sidebar. When false, monochrome
     /// Phosphor paths follow the resolved theme foreground instead. Settings
     /// expose the inverse as "Use monochrome icons".
@@ -1742,6 +1744,9 @@ pub struct Settings {
     /// implied until it is saved here; see `claude::profiles_for_settings`.
     #[serde(default)]
     pub claude_profiles: Vec<ClaudeProfile>,
+    /// Home visibility is independent of polling and provider-tab visibility.
+    #[serde(default)]
+    pub claude_home_excluded_profiles: Vec<String>,
     /// Reject queued results and refresh the running Claude reader after a
     /// profile's protected credential or enabled account set changes.
     #[serde(default)]
@@ -1773,6 +1778,7 @@ impl Default for Settings {
             popup_two_columns: false,
             popup_right_column: None,
             use_colored_provider_icons: true,
+            show_accounts_as_tabs: false,
             use_colored_sidebar_icons: true,
             replace_chatgpt_logo_with_codex: false,
             automatic_activation: false,
@@ -1806,6 +1812,7 @@ impl Default for Settings {
             openrouter_credentials_revision: 0,
             openrouter_accounts: Vec::new(),
             claude_profiles: Vec::new(),
+            claude_home_excluded_profiles: Vec::new(),
             claude_credentials_revision: 0,
             // An empty list intentionally means "show the ordinary app icon".
             tray_widgets: Vec::new(),
