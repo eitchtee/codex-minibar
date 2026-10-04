@@ -435,34 +435,119 @@ impl Default for UiState {
 
 impl UiState {
     /// Shared seed for both the render tree and the background bridge. The
-    /// bridge publishes a complete snapshot, so it must restore layout too.
+    /// bridge publishes a complete snapshot, so it must restore layout and
+    /// effective usage eligibility before either path can produce a first frame.
     pub(super) fn popup_layout_from_settings(settings: &Settings) -> Self {
         Self {
+            usage_stats_excluded_providers: settings.effective_usage_stats_excluded_providers(),
             popup_two_columns: settings.popup_two_columns,
             popup_right_column: settings.popup_right_column.clone(),
             ..Self::default()
         }
     }
 
-    /// Keep known HTTP authorization/access failures readable in the popup
-    /// while retaining the complete provider error in the application log.
+    /// Turn transport/status chains into short product-facing messages. The
+    /// original diagnostic is retained by the logging paths, never in this UI.
     pub(super) fn error_for_ui(error: &str) -> String {
-        let tokens = error
-            .split(|character: char| !character.is_ascii_alphanumeric())
+        let lower = error.to_ascii_lowercase();
+        let tokens = lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
             .filter(|token| !token.is_empty())
             .collect::<Vec<_>>();
-        let is_forbidden = tokens.windows(2).any(|pair| {
-            (pair[1] == "403"
-                && ["status", "code", "http"]
-                    .iter()
-                    .any(|prefix| pair[0].eq_ignore_ascii_case(prefix)))
-                || (pair[0] == "403" && pair[1].eq_ignore_ascii_case("forbidden"))
-        });
-        if is_forbidden {
-            "403 Forbidden".into()
-        } else {
-            error.into()
+        let has_status = |code: &str| {
+            tokens.windows(2).any(|pair| {
+                (pair[1] == code && ["status", "code", "http"].contains(&pair[0]))
+                    || (pair[0] == code && ["forbidden", "unauthorized"].contains(&pair[1]))
+            })
+        };
+        let mut messages = Vec::new();
+        let mut add = |message: &'static str| {
+            if !messages.contains(&message) {
+                messages.push(message);
+            }
+        };
+        let timeout = lower.contains("timed out")
+            || lower.contains("timeout")
+            || lower.contains("os error 10060")
+            || has_status("408")
+            || has_status("504");
+        let certificate = lower.contains("certificate") || lower.contains("unknownissuer");
+        let closed = lower.contains("os error 10054")
+            || lower.contains("connection reset")
+            || lower.contains("forcibly closed")
+            || lower.contains("connection closed");
+        let dns = lower.contains("dns")
+            || lower.contains("no such host")
+            || lower.contains("name resolution")
+            || lower.contains("os error 11001");
+        if timeout {
+            add("The request timed out. Try refreshing again.");
         }
+        if certificate {
+            add("The secure connection could not be verified. See Log for details.");
+        }
+        if closed && !timeout {
+            add("The provider closed the connection. Try refreshing again.");
+        }
+        if dns {
+            add("The provider's address could not be resolved. Check your connection.");
+        }
+        if !timeout
+            && !certificate
+            && !closed
+            && !dns
+            && (lower.contains("connection failed")
+                || lower.contains("connect error")
+                || lower.contains("network error")
+                || lower.contains("connection refused")
+                || lower.contains("tls connection init failed"))
+        {
+            add("Could not connect to the provider. Check your connection and try again.");
+        }
+        if lower.contains("save a valid management key") {
+            add("The management key was rejected. Update it in Settings.");
+        } else if has_status("401") {
+            add("Authentication failed. Sign in again or update the provider key.");
+        }
+        if has_status("403") {
+            add("Access denied by the provider (HTTP 403).");
+        }
+        if has_status("429")
+            || lower.contains("rate limited")
+            || lower.contains("too many requests")
+        {
+            add("Too many requests. Wait a few minutes before refreshing again.");
+        }
+        if ["500", "502", "503"].iter().any(|code| has_status(code)) {
+            add("The provider is temporarily unavailable. Try again later.");
+        }
+        if has_status("400") {
+            add("The provider rejected the request. See Log for details.");
+        }
+        if has_status("404") {
+            add("The requested resource was not found. See Log for details.");
+        }
+        if lower.contains("parse ")
+            || lower.contains("invalid json")
+            || lower.contains("missing rows")
+            || lower.contains("incomplete results")
+        {
+            add("The provider returned an unexpected response. Try refreshing again.");
+        }
+        if !messages.is_empty() {
+            return messages.join("\n");
+        }
+        // Keep short actionable domain messages. Unknown technical dumps need
+        // a useful fallback instead of another URL/stack-trace wall of text.
+        if error.chars().count() > 220
+            || lower.contains("https://")
+            || lower.contains("http://")
+            || lower.contains("os error")
+            || lower.contains("<html")
+        {
+            return "The request failed. See Log for details.".into();
+        }
+        error.trim().into()
     }
 
     /// Shows an app-level error in the popup and records it once per distinct

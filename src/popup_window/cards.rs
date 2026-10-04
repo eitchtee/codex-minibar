@@ -196,11 +196,28 @@ pub(super) fn provider_cards(
         ProviderKind::Kiro => ("Monthly Credits", "Credits", "Credits"),
         _ => ("Monthly", "5h Session", "Weekly"),
     };
+    let single_openrouter_account =
+        provider == ProviderKind::OpenRouter && limits.openrouter_accounts.len() == 1;
     let mut trailing: Vec<Element> = Vec::new();
-    if show_account_name && let Some(name) = limits.account_name.as_ref() {
+    if show_account_name
+        && !single_openrouter_account
+        && let Some(name) = limits.account_name.as_ref()
+    {
         trailing.push(
             caption(name.clone())
                 .foreground(ThemeRef::TertiaryText)
+                .horizontal_alignment(HorizontalAlignment::Right)
+                .vertical_alignment(VerticalAlignment::Center)
+                .into(),
+        );
+    }
+    if single_openrouter_account
+        && let Some(balance) = limits.openrouter_accounts[0].balance_microusd
+    {
+        trailing.push(
+            text_block(format_usd(balance as f64 / 1_000_000.0))
+                .font_weight(600)
+                .foreground(ThemeRef::Accent)
                 .horizontal_alignment(HorizontalAlignment::Right)
                 .vertical_alignment(VerticalAlignment::Center)
                 .into(),
@@ -215,10 +232,11 @@ pub(super) fn provider_cards(
             .vertical_alignment(VerticalAlignment::Center)
             .into(),
     ];
-    if let Some(plan) = limits
-        .plan_type
-        .as_deref()
-        .filter(|plan| !plan.trim().is_empty())
+    if !single_openrouter_account
+        && let Some(plan) = limits
+            .plan_type
+            .as_deref()
+            .filter(|plan| !plan.trim().is_empty())
     {
         title_parts.push(
             text_block(capitalize_plan_name(plan))
@@ -282,10 +300,12 @@ pub(super) fn provider_cards(
                 // glued together; remount the strip when its key set changes.
                 for account in &limits.openrouter_accounts {
                     let mut account_strip: Vec<Element> = Vec::new();
-                    account_strip.push(
-                        openrouter_account_heading(account)
-                            .with_key(format!("{}-account-heading", account.id)),
-                    );
+                    if !single_openrouter_account {
+                        account_strip.push(
+                            openrouter_account_heading(account)
+                                .with_key(format!("{}-account-heading", account.id)),
+                        );
+                    }
                     let mut key_identity = String::new();
                     for (index, api_key) in account
                         .api_keys
@@ -294,8 +314,9 @@ pub(super) fn provider_cards(
                         .filter(|_| spending_visible)
                     {
                         let title = api_key
-                            .label
+                            .local_name
                             .as_deref()
+                            .or(api_key.label.as_deref())
                             .map(str::trim)
                             .filter(|label| !label.is_empty())
                             .map(str::to_owned)
@@ -870,7 +891,7 @@ pub(super) fn openrouter_accounts_strip_key(limits: &RateLimits) -> String {
         for api_key in &account.api_keys {
             key.push('\u{1e}');
             key.push_str(&api_key.id);
-            if let Some(label) = api_key.label.as_deref() {
+            if let Some(label) = api_key.local_name.as_deref().or(api_key.label.as_deref()) {
                 key.push(':');
                 key.push_str(label);
             }
@@ -2145,6 +2166,9 @@ fn openrouter_account_usage(limits: &RateLimits, account: &str) -> Option<Elemen
         return None;
     }
     if contents.is_empty() {
+        if !crate::openrouter::management_key_is_configured(account) {
+            return None;
+        }
         contents.push(
             caption("Loading usage statistics…")
                 .foreground(ThemeRef::TertiaryText)

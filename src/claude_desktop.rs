@@ -89,21 +89,24 @@ fn is_store_package_name(name: &str) -> bool {
 /// The `claude.exe` the desktop app unpacks for its embedded Claude Code. This
 /// is the only launcher available when the CLI was never installed on PATH.
 pub fn bundled_cli() -> Option<PathBuf> {
+    bundled_cli_in(&config_roots())
+}
+
+fn bundled_cli_in(roots: &[PathBuf]) -> Option<PathBuf> {
     let mut best: Option<(semver::Version, PathBuf)> = None;
-    for root in config_roots() {
+    for root in roots {
         let Ok(entries) = fs::read_dir(root.join("claude-code")) else {
             continue;
         };
         for entry in entries.flatten() {
-            let executable = entry.path().join("claude.exe");
-            if !executable.is_file() {
-                continue;
-            }
             let Some(version) = entry
                 .file_name()
                 .to_str()
                 .and_then(|name| semver::Version::parse(name).ok())
             else {
+                continue;
+            };
+            let Some(executable) = launcher_in_version(&entry.path()) else {
                 continue;
             };
             if best
@@ -115,6 +118,27 @@ pub fn bundled_cli() -> Option<PathBuf> {
         }
     }
     best.map(|(_, executable)| executable)
+}
+
+fn launcher_in_version(version_dir: &Path) -> Option<PathBuf> {
+    // Older Desktop releases unpacked directly into the version directory;
+    // newer releases add one build-hash directory below it.
+    let direct = version_dir.join("claude.exe");
+    if direct.is_file() {
+        return Some(direct);
+    }
+    let mut builds = fs::read_dir(version_dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    // Keep discovery deterministic when more than one build is cached.
+    builds.sort();
+    builds
+        .into_iter()
+        .map(|build| build.join("claude.exe"))
+        .find(|executable| executable.is_file())
 }
 
 /// True when the desktop app is present, whether or not it can be decrypted.
@@ -377,6 +401,41 @@ mod tests {
     use aes_gcm::aead::Payload;
 
     use super::*;
+
+    fn write_launcher(root: &Path, relative: &str) -> PathBuf {
+        let path = root.join("claude-code").join(relative).join("claude.exe");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"fixture").unwrap();
+        path
+    }
+
+    #[test]
+    fn bundled_cli_finds_hash_layout_and_ignores_incomplete_newer_versions() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write_launcher(root, "2.1.284/3f4bed3e44ad");
+        let latest = write_launcher(root, "2.1.286/635c1867224a");
+        fs::create_dir_all(root.join("claude-code/2.1.287/pending")).unwrap();
+        write_launcher(root, "staging/hash");
+        assert_eq!(bundled_cli_in(&[root.to_path_buf()]), Some(latest));
+    }
+
+    #[test]
+    fn bundled_cli_preserves_legacy_layout_and_selects_latest_across_roots() {
+        let directory = tempfile::tempdir().unwrap();
+        let direct = directory.path().join("direct");
+        let store = directory.path().join("store");
+        write_launcher(&direct, "2.1.9");
+        let latest = write_launcher(&store, "2.1.10");
+        assert_eq!(bundled_cli_in(&[direct, store]), Some(latest));
+    }
+
+    #[test]
+    fn bundled_cli_does_not_search_arbitrary_deeper_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        write_launcher(directory.path(), "2.1.286/hash/unrelated");
+        assert_eq!(bundled_cli_in(&[directory.path().to_path_buf()]), None);
+    }
 
     fn seal(key: &[u8], nonce: &[u8; GCM_NONCE_LEN], plaintext: &str) -> String {
         let sealed = Aes256Gcm::new_from_slice(key)

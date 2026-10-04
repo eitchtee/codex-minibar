@@ -110,6 +110,7 @@ pub(super) fn render(ctx: &SettingsPageContext<'_>) -> (&'static str, Vec<Elemen
                 &available_usage_providers,
                 usage_stats_excluded_providers,
                 usage_stats_enabled,
+                crate::openrouter::has_management_key(ctx.openrouter_accounts),
                 set_usage_stats_excluded_providers,
                 settings_tx.clone(),
             )
@@ -216,6 +217,7 @@ fn usage_stats_provider_selection_card(
     available_providers: &[ProviderKind],
     excluded_providers: &[String],
     usage_stats_enabled: bool,
+    openrouter_usage_available: bool,
     set_excluded_providers: SetState<Vec<String>>,
     settings_tx: Sender<Settings>,
 ) -> Element {
@@ -225,15 +227,19 @@ fn usage_stats_provider_selection_card(
         let row = (index / PROVIDER_COLUMNS) as i32;
         let column = (index % PROVIDER_COLUMNS) as i32;
         let descriptor = crate::provider_registry::descriptor(provider);
-        let checked = !excluded_providers.iter().any(|id| id == provider.id());
+        let available = provider != ProviderKind::OpenRouter || openrouter_usage_available;
+        let checked = available && !excluded_providers.iter().any(|id| id == provider.id());
         let current = excluded_providers.to_vec();
         let set_excluded_providers = set_excluded_providers.clone();
         let settings_tx = settings_tx.clone();
         let checkbox: Element = settings_labeled_checkbox(
             checked,
             descriptor.display_name,
-            usage_stats_enabled,
+            usage_stats_enabled && available,
             move |checked| {
+                if !available {
+                    return;
+                }
                 let mut optimistic = current.clone();
                 if checked {
                     optimistic.retain(|id| id != provider.id());
@@ -247,6 +253,18 @@ fn usage_stats_provider_selection_card(
             },
         )
         .into();
+        // Keep the tooltip host enabled and hit-testable even though the
+        // checkbox itself is disabled. Disabled WinUI controls do not receive
+        // the ordinary tooltip pointer events.
+        let checkbox = if !available {
+            border(checkbox)
+                .background(Color::transparent())
+                .horizontal_alignment(HorizontalAlignment::Left)
+                .tooltip("Add a management key")
+                .into()
+        } else {
+            checkbox
+        };
         provider_checks.push(
             checkbox
                 .with_key(format!("general-usage-provider-{}", provider.id()))

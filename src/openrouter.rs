@@ -141,9 +141,11 @@ fn read_account_credits_with_agent(
         .call()
     {
         Ok(response) => response,
-        // OpenRouter intentionally rejects ordinary API keys here. That
-        // is expected and must not hide the data already returned by /key.
-        Err(ureq::Error::Status(403, _)) => return Ok(None),
+        Err(ureq::Error::Status(429, _)) => {
+            return Err(crate::worker::rate_limit_error(
+                "OpenRouter account credits request was rate limited (HTTP 429).",
+            ));
+        }
         Err(error) => return Err(error).context("request OpenRouter account credits"),
     };
     let body = response
@@ -153,7 +155,8 @@ fn read_account_credits_with_agent(
 }
 
 /// Maps masked `label` values from `/key` to directory metadata.
-/// Requires a management key; ordinary inference keys get a quiet empty map.
+/// Only called when a management key is configured. Failed reads must surface
+/// as provider errors rather than silently looking like an empty directory.
 fn read_key_directory_with_agent(
     agent: &ureq::Agent,
     api_key: &str,
@@ -165,7 +168,11 @@ fn read_key_directory_with_agent(
         .call()
     {
         Ok(response) => response,
-        Err(ureq::Error::Status(403, _)) => return Ok(HashMap::new()),
+        Err(ureq::Error::Status(429, _)) => {
+            return Err(crate::worker::rate_limit_error(
+                "OpenRouter API key directory request was rate limited (HTTP 429).",
+            ));
+        }
         Err(error) => return Err(error).context("request OpenRouter API key directory"),
     };
     let body = response
@@ -174,6 +181,7 @@ fn read_key_directory_with_agent(
     parse_keys_directory(&body)
 }
 
+#[derive(Default)]
 struct AccountFetchResult {
     id: String,
     name: String,
@@ -181,6 +189,23 @@ struct AccountFetchResult {
     credits: Option<AccountCredits>,
     cache_updates: Vec<(String, CachedOpenRouterKey)>,
     rate_limited: bool,
+    errors: Vec<String>,
+}
+
+fn validate_account_fetches(accounts: &[AccountFetchResult]) -> Result<()> {
+    let errors = accounts
+        .iter()
+        .flat_map(|account| {
+            account
+                .errors
+                .iter()
+                .map(|error| format!("{}: {error}", account.name))
+        })
+        .collect::<Vec<_>>();
+    if !errors.is_empty() {
+        bail!("OpenRouter quota refresh failed: {}", errors.join("; "));
+    }
+    Ok(())
 }
 
 /// Fetch directory, every `/key`, and credits concurrently for one account.
@@ -190,71 +215,83 @@ fn fetch_openrouter_account(
     key_cache: &HashMap<String, CachedOpenRouterKey>,
     sampled_at: DateTime<Utc>,
 ) -> AccountFetchResult {
-    let credits_key = account
-        .management_key
-        .clone()
-        .or_else(|| account.api_keys.first().map(|key| key.value.clone()));
+    // Credits require management credentials; an API-only account does not
+    // need to probe an endpoint it cannot use.
+    let credits_key = account.management_key.clone();
 
-    let (key_directory, live_results, credits, rate_limited) = std::thread::scope(|scope| {
-        let directory = account.management_key.as_ref().map(|key| {
-            let agent = agent.clone();
-            let key = key.clone();
-            scope.spawn(move || {
-                // Key display names must come only from this account's management
-                // key directory. Never fall back to an ordinary API key here.
-                read_key_directory_with_agent(&agent, &key)
-            })
-        });
-        let keys: Vec<_> = account
-            .api_keys
-            .iter()
-            .map(|api_key| {
+    let (key_directory, live_results, credits, rate_limited, errors) =
+        std::thread::scope(|scope| {
+            let directory = account.management_key.as_ref().map(|key| {
                 let agent = agent.clone();
-                let value = api_key.value.clone();
-                scope.spawn(move || read_key_with_agent(&agent, &value, sampled_at))
-            })
-            .collect();
-        let credits = credits_key.map(|key| {
-            let agent = agent.clone();
-            scope.spawn(move || read_account_credits_with_agent(&agent, &key))
-        });
+                let key = key.clone();
+                scope.spawn(move || {
+                    // Key display names must come only from this account's management
+                    // key directory. Never fall back to an ordinary API key here.
+                    read_key_directory_with_agent(&agent, &key)
+                })
+            });
+            let keys: Vec<_> = account
+                .api_keys
+                .iter()
+                .map(|api_key| {
+                    let agent = agent.clone();
+                    let value = api_key.value.clone();
+                    scope.spawn(move || read_key_with_agent(&agent, &value, sampled_at))
+                })
+                .collect();
+            let credits = credits_key.map(|key| {
+                let agent = agent.clone();
+                scope.spawn(move || read_account_credits_with_agent(&agent, &key))
+            });
 
-        let directory = directory.map(|handle| {
-            handle
-                .join()
-                .unwrap_or_else(|_| Err(anyhow!("OpenRouter key directory worker panicked")))
-        });
-        let mut rate_limited = directory
-            .as_ref()
-            .and_then(|result| result.as_ref().err())
-            .is_some_and(crate::worker::is_rate_limited_error);
-        let key_directory = directory.and_then(Result::ok).unwrap_or_default();
-        let live_results: Vec<Result<KeyReadOutcome>> = keys
-            .into_iter()
-            .map(|handle| {
+            let directory = directory.map(|handle| {
                 handle
                     .join()
-                    .unwrap_or_else(|_| bail!("OpenRouter API-key worker panicked"))
-            })
-            .collect();
-        rate_limited |= live_results.iter().any(|result| {
-            result
+                    .unwrap_or_else(|_| Err(anyhow!("OpenRouter key directory worker panicked")))
+            });
+            let mut rate_limited = directory
                 .as_ref()
-                .err()
-                .is_some_and(crate::worker::is_rate_limited_error)
+                .and_then(|result| result.as_ref().err())
+                .is_some_and(crate::worker::is_rate_limited_error);
+            let mut errors = Vec::new();
+            if let Some(Err(error)) = &directory {
+                errors.push(format!("Key directory: {error:#}"));
+            }
+            let key_directory = directory.and_then(Result::ok).unwrap_or_default();
+            let live_results: Vec<Result<KeyReadOutcome>> = keys
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| bail!("OpenRouter API-key worker panicked"))
+                })
+                .collect();
+            rate_limited |= live_results.iter().any(|result| {
+                result
+                    .as_ref()
+                    .err()
+                    .is_some_and(crate::worker::is_rate_limited_error)
+            });
+            for (key, result) in account.api_keys.iter().zip(&live_results) {
+                if let Err(error) = result {
+                    errors.push(format!("API key {}: {error:#}", key.id));
+                }
+            }
+            let credits = credits.map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow!("OpenRouter credits worker panicked")))
+            });
+            rate_limited |= credits
+                .as_ref()
+                .and_then(|result| result.as_ref().err())
+                .is_some_and(crate::worker::is_rate_limited_error);
+            if let Some(Err(error)) = &credits {
+                errors.push(format!("Account credits: {error:#}"));
+            }
+            let balance = credits.and_then(Result::ok).flatten();
+            (key_directory, live_results, balance, rate_limited, errors)
         });
-        let credits = credits.map(|handle| {
-            handle
-                .join()
-                .unwrap_or_else(|_| Err(anyhow!("OpenRouter credits worker panicked")))
-        });
-        rate_limited |= credits
-            .as_ref()
-            .and_then(|result| result.as_ref().err())
-            .is_some_and(crate::worker::is_rate_limited_error);
-        let balance = credits.and_then(Result::ok).flatten();
-        (key_directory, live_results, balance, rate_limited)
-    });
 
     let mut api_keys = Vec::new();
     let mut cache_updates = Vec::new();
@@ -348,6 +385,7 @@ fn fetch_openrouter_account(
             },
         ));
         api_keys.push(OpenRouterApiKeySnapshot {
+            local_name: None,
             id: api_key.id.clone(),
             label,
             masked_key,
@@ -365,6 +403,7 @@ fn fetch_openrouter_account(
         credits,
         cache_updates,
         rate_limited,
+        errors,
     }
 }
 
@@ -391,6 +430,7 @@ impl LimitProvider for OpenRouterClient {
                         credits: None,
                         cache_updates: Vec::new(),
                         rate_limited: false,
+                        errors: vec!["Account quota worker panicked".into()],
                     })
                 })
                 .collect()
@@ -401,6 +441,10 @@ impl LimitProvider for OpenRouterClient {
                 "OpenRouter account usage request was rate limited (HTTP 429).",
             ));
         }
+        // Validate before publishing or updating metadata. The worker's normal
+        // PollFailed path keeps the last successful snapshot and shows a
+        // provider error instead of publishing unknown usage / missing balance.
+        validate_account_fetches(&fetched)?;
 
         let mut accounts = Vec::new();
         for result in fetched {
@@ -458,7 +502,7 @@ pub fn accounts_for_settings(settings: &Settings) -> Vec<OpenRouterAccount> {
     accounts
 }
 
-/// Overlay locally chosen account names onto a live quota snapshot.
+/// Overlay locally chosen account and key names onto a live quota snapshot.
 /// A rename is a settings-only change and must not wait for the next worker
 /// poll or an app restart.
 pub fn apply_account_names(limits: &mut RateLimits, settings: &Settings) -> bool {
@@ -469,6 +513,19 @@ pub fn apply_account_names(limits: &mut RateLimits, settings: &Settings) -> bool
         .collect();
     let mut changed = false;
     for account in &mut limits.openrouter_accounts {
+        let configured = settings
+            .openrouter_accounts
+            .iter()
+            .find(|a| a.id == account.id);
+        for key in &mut account.api_keys {
+            let local_name = configured
+                .and_then(|a| a.api_key_names.get(&key.id))
+                .cloned();
+            if key.local_name != local_name {
+                key.local_name = local_name;
+                changed = true;
+            }
+        }
         if let Some(name) = names.get(account.id.as_str())
             && account.name != *name
         {
@@ -504,6 +561,12 @@ pub fn api_key_is_configured(account_id: &str, key_id: &str) -> bool {
 
 pub fn management_key_is_configured(account_id: &str) -> bool {
     load_secret(&management_secret_name(account_id))
+}
+
+pub(crate) fn has_management_key(accounts: &[OpenRouterAccount]) -> bool {
+    accounts
+        .iter()
+        .any(|account| management_key_is_configured(&account.id))
 }
 
 pub fn save_account_api_key(account_id: &str, key_id: &str, value: Option<&str>) -> Result<()> {
@@ -1530,6 +1593,7 @@ mod tests {
                     id: "account-one".into(),
                     name: "First account".into(),
                     api_keys: vec![OpenRouterApiKeySnapshot {
+                        local_name: None,
                         id: "key-one".into(),
                         label: first.account_name,
                         masked_key: Some("sk-or-v1-aaa...111".into()),
@@ -1545,6 +1609,7 @@ mod tests {
                     id: "account-two".into(),
                     name: "Second account".into(),
                     api_keys: vec![OpenRouterApiKeySnapshot {
+                        local_name: None,
                         id: "key-two".into(),
                         label: second.account_name,
                         masked_key: Some("sk-or-v1-bbb...222".into()),
@@ -1585,6 +1650,7 @@ mod tests {
                     id: "leon-flame".into(),
                     name: "Leon Flame".into(),
                     api_keys: vec![OpenRouterApiKeySnapshot {
+                        local_name: None,
                         id: "test2".into(),
                         label: leon_key.account_name,
                         masked_key: Some("sk-or-v1-f12...662".into()),
@@ -1600,6 +1666,7 @@ mod tests {
                     id: "pixelscan".into(),
                     name: "Pixelscan".into(),
                     api_keys: vec![OpenRouterApiKeySnapshot {
+                        local_name: None,
                         id: "key-1".into(),
                         label: pixel_key.account_name,
                         masked_key: Some("sk-or-v1-a12...1f8".into()),
@@ -1641,6 +1708,7 @@ mod tests {
                 id: "acc".into(),
                 name: "TESTdfwfwer".into(),
                 api_key_ids: vec!["key".into()],
+                api_key_names: Default::default(),
             }],
             ..Default::default()
         };
@@ -1656,5 +1724,105 @@ mod tests {
         assert_eq!(limits.openrouter_accounts[0].name, "TESTdfwfwer");
         assert_eq!(limits.account_name.as_deref(), Some("TESTdfwfwer"));
         assert!(!apply_account_names(&mut limits, &settings));
+    }
+
+    #[test]
+    fn failed_key_or_credits_fetch_is_a_provider_error_even_with_partial_success() {
+        for failure in [
+            "API key: connection timed out",
+            "Account credits: HTTP 500",
+            "Key directory: HTTP 401",
+        ] {
+            let accounts = vec![
+                AccountFetchResult {
+                    name: "Healthy account".into(),
+                    credits: Some(AccountCredits {
+                        balance_microusd: 23_350_000,
+                        total_credits_microusd: 39_000_000,
+                    }),
+                    ..Default::default()
+                },
+                AccountFetchResult {
+                    name: "Failed account".into(),
+                    errors: vec![failure.into()],
+                    ..Default::default()
+                },
+            ];
+            let error = validate_account_fetches(&accounts)
+                .expect_err("Failed reads must not publish a successful placeholder snapshot");
+            assert!(error.to_string().contains(failure));
+        }
+        assert!(validate_account_fetches(&[AccountFetchResult::default()]).is_ok());
+    }
+
+    #[test]
+    fn local_key_names_survive_polls_and_clear_without_losing_remote_names() {
+        let mut account = OpenRouterAccount::new("Personal");
+        let key_id = account.api_key_ids[0].clone();
+        account
+            .api_key_names
+            .insert(key_id.clone(), "Local name".into());
+        let mut settings = Settings {
+            openrouter_accounts: vec![account.clone()],
+            ..Default::default()
+        };
+        let mut limits = RateLimits::default();
+        limits.openrouter_accounts.push(OpenRouterAccountSnapshot {
+            id: account.id.clone(),
+            api_keys: vec![OpenRouterApiKeySnapshot {
+                id: key_id.clone(),
+                label: Some("Remote name".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        assert!(apply_account_names(&mut limits, &settings));
+        let key = &limits.openrouter_accounts[0].api_keys[0];
+        assert_eq!(key.local_name.as_deref(), Some("Local name"));
+        assert_eq!(key.label.as_deref(), Some("Remote name"));
+        assert!(!apply_account_names(&mut limits, &settings));
+
+        // Adding/replacing a management key restarts the worker at a new
+        // credential revision. Its directory can now return a different name,
+        // but the saved user override must still win on the fresh snapshot.
+        settings.openrouter_credentials_revision += 1;
+        limits.openrouter_accounts[0].api_keys[0] = OpenRouterApiKeySnapshot {
+            id: key_id.clone(),
+            label: Some("Name from management directory".into()),
+            ..Default::default()
+        };
+        assert!(apply_account_names(&mut limits, &settings));
+        let key = &limits.openrouter_accounts[0].api_keys[0];
+        assert_eq!(
+            key.local_name.as_deref().or(key.label.as_deref()),
+            Some("Local name")
+        );
+        assert_eq!(
+            settings.openrouter_accounts[0].api_key_names[&key_id],
+            "Local name"
+        );
+
+        // Fresh worker snapshots contain only remote metadata.
+        limits.openrouter_accounts[0].api_keys[0].local_name = None;
+        assert!(apply_account_names(&mut limits, &settings));
+        settings.openrouter_accounts[0].api_key_names.clear();
+        assert!(apply_account_names(&mut limits, &settings));
+        let key = &limits.openrouter_accounts[0].api_keys[0];
+        assert!(key.local_name.is_none());
+        assert_eq!(key.label.as_deref(), Some("Name from management directory"));
+
+        let old: OpenRouterAccount =
+            serde_json::from_str(r#"{"id":"old","name":"Personal","api_key_ids":["key"]}"#)
+                .unwrap();
+        assert!(old.api_key_names.is_empty());
+        settings.openrouter_accounts[0]
+            .api_key_names
+            .insert(key_id.clone(), "Saved name".into());
+        let saved = toml::to_string(&settings).unwrap();
+        let restored: Settings = toml::from_str(&saved).unwrap();
+        assert_eq!(
+            restored.openrouter_accounts[0].api_key_names[&key_id],
+            "Saved name"
+        );
     }
 }

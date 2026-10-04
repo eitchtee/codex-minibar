@@ -288,6 +288,10 @@ pub(super) enum ProviderDialogKind {
     RenameOpenRouterAccount {
         account_id: String,
     },
+    RenameOpenRouterApiKey {
+        account_id: String,
+        key_id: String,
+    },
     RemoveOpenRouterApiKey {
         account_id: String,
         key_id: String,
@@ -609,7 +613,27 @@ fn more_menu(
         // buttons, which made the menu appear empty.
         .icon(Symbol::More)
         .subtle()
-        .menu_flyout(items.iter().map(|item| menu_item(*item)).collect())
+        .menu_flyout(
+            items
+                .iter()
+                .map(|item| {
+                    let icon = match *item {
+                        "Rename key" => Some("pencil-simple"),
+                        "Remove key" => Some("trash"),
+                        "Add key" => Some("plus"),
+                        _ => None,
+                    };
+                    let definition = menu_item(*item);
+                    match icon {
+                        Some(name) => {
+                            let geometry = crate::icons::geom(name);
+                            definition.path_icon(geometry.path)
+                        }
+                        None => definition,
+                    }
+                })
+                .collect(),
+        )
         .on_item_clicked(on_choice)
         .tooltip("More options")
         .width(32.0)
@@ -662,12 +686,25 @@ fn persist_openrouter_accounts(
     bump_credentials: bool,
     mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
 ) -> anyhow::Result<()> {
+    persist_openrouter_accounts_with_availability(settings_tx, bump_credentials, None, mutate)
+}
+
+fn persist_openrouter_accounts_with_availability(
+    settings_tx: Sender<Settings>,
+    bump_credentials: bool,
+    previous_availability: Option<bool>,
+    mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
+) -> anyhow::Result<()> {
     try_persist_update_fallible(settings_tx, move |settings| {
         // Include the synthetic legacy account when present so edits land on
         // the same identities the Settings UI is showing.
         let mut accounts = crate::openrouter::accounts_for_settings(settings);
         mutate(&mut accounts)?;
         settings.openrouter_accounts = accounts;
+        if let Some(before) = previous_availability {
+            let after = crate::openrouter::has_management_key(&settings.openrouter_accounts);
+            settings.sync_openrouter_usage_availability(before, after);
+        }
         if bump_credentials {
             settings.openrouter_credentials_revision =
                 settings.openrouter_credentials_revision.wrapping_add(1);
@@ -684,8 +721,12 @@ fn persist_openrouter_credentials(
     changes: Vec<crate::openrouter::AccountSecretChange>,
     mutate: impl FnOnce(&mut Vec<OpenRouterAccount>) -> anyhow::Result<()> + 'static,
 ) -> anyhow::Result<()> {
+    let current = Settings::load_or_create(&Settings::default_path()?)?;
+    let before = crate::openrouter::has_management_key(&current.openrouter_accounts);
     let rollback = crate::openrouter::apply_account_secret_changes(&changes)?;
-    if let Err(error) = persist_openrouter_accounts(settings_tx, true, mutate) {
+    if let Err(error) =
+        persist_openrouter_accounts_with_availability(settings_tx, true, Some(before), mutate)
+    {
         return match rollback.restore() {
             Ok(()) => Err(error),
             Err(rollback_error) => Err(anyhow::anyhow!(
@@ -2314,8 +2355,11 @@ fn openrouter_key_table(
                 .tooltip(format!("{error}. Reopen this page to retry."))
                 .into()
         } else {
-            match key_snapshot
-                .and_then(|key| key.label.clone())
+            match account
+                .api_key_names
+                .get(key_id)
+                .cloned()
+                .or_else(|| key_snapshot.and_then(|key| key.label.clone()))
                 .filter(|label| !label.trim().is_empty())
             {
                 Some(label) => text_block(label).font_size(13.0).wrap().into(),
@@ -2389,14 +2433,29 @@ fn openrouter_key_table(
         let set_dialog = ctx.set_provider_dialog.clone();
         let menu_account = account.id.clone();
         let menu_key = key_id.clone();
+        let local_name = account
+            .api_key_names
+            .get(key_id)
+            .cloned()
+            .unwrap_or_default();
         let menu = more_menu(
             if saved || read_error.is_some() {
-                &["Replace key", "Remove key"]
+                &["Rename key", "Remove key"]
             } else {
-                &["Add key", "Remove key"]
+                &["Rename key", "Add key", "Remove key"]
             },
             ctx.color_scheme,
             move |choice: String| {
+                if choice == "Rename key" {
+                    set_dialog.call(Some(ProviderDialog::with_name(
+                        ProviderDialogKind::RenameOpenRouterApiKey {
+                            account_id: menu_account.clone(),
+                            key_id: menu_key.clone(),
+                        },
+                        local_name.clone(),
+                    )));
+                    return;
+                }
                 let kind = if choice == "Remove key" {
                     ProviderDialogKind::RemoveOpenRouterApiKey {
                         account_id: menu_account.clone(),
@@ -2687,6 +2746,22 @@ fn claude_credential_fields(
     .into()
 }
 
+fn dialog_key_name_box(dialog: &ProviderDialog, on_submit: impl Fn() + Clone + 'static) -> Element {
+    vstack((
+        text_box(dialog.initial_name.clone())
+            .header("Key name (optional)")
+            .placeholder_text("e.g. Personal")
+            .enabled(!dialog.checking)
+            .on_text_changed(dialog_field_handler(dialog, DialogField::Name))
+            .keyboard_accelerator(dialog_submit_enter(on_submit))
+            .horizontal_alignment(HorizontalAlignment::Stretch),
+        secondary_text("Leave blank to use the name from OpenRouter."),
+    ))
+    .spacing(4.0)
+    .horizontal_alignment(HorizontalAlignment::Stretch)
+    .into()
+}
+
 pub(super) fn provider_dialog_overlay(
     dialog: &ProviderDialog,
     accounts: &[OpenRouterAccount],
@@ -2739,6 +2814,9 @@ pub(super) fn provider_dialog_overlay(
             fields.push(
                 secondary_text(format!("For the {} account.", account_name(account_id))).into(),
             );
+            if !replacing {
+                fields.push(dialog_key_name_box(dialog, on_submit.clone()));
+            }
             fields.push(dialog_password(
                 dialog,
                 DialogField::Key,
@@ -2787,6 +2865,10 @@ pub(super) fn provider_dialog_overlay(
         ProviderDialogKind::RenameOpenRouterAccount { .. } => {
             fields.push(dialog_name_box(dialog, None, on_submit.clone()));
             ("Rename account".to_owned(), "Rename", false)
+        }
+        ProviderDialogKind::RenameOpenRouterApiKey { .. } => {
+            fields.push(dialog_key_name_box(dialog, on_submit.clone()));
+            ("Rename key".to_owned(), "Save", false)
         }
         ProviderDialogKind::RemoveOpenRouterApiKey { account_id, key_id } => {
             let hint = crate::openrouter::api_key_hint(account_id, key_id)
@@ -3163,6 +3245,7 @@ fn submit_provider_dialog(
         }
         ProviderDialogKind::OpenRouterApiKey { account_id, key_id } => {
             let key = inputs.key.trim().to_owned();
+            let local_name = inputs.name.trim().to_owned();
             if key.is_empty() {
                 return fail("Paste a key first.");
             }
@@ -3188,7 +3271,7 @@ fn submit_provider_dialog(
                             )],
                             move |accounts| {
                                 let saved = accounts
-                                    .iter()
+                                    .iter_mut()
                                     .find(|saved| saved.id == account.id)
                                     .ok_or_else(|| {
                                         anyhow::anyhow!("OpenRouter account no longer exists")
@@ -3197,6 +3280,9 @@ fn submit_provider_dialog(
                                     saved.api_key_ids.contains(&key_id),
                                     "OpenRouter API key no longer exists"
                                 );
+                                if !local_name.is_empty() {
+                                    saved.api_key_names.insert(key_id, local_name);
+                                }
                                 Ok(())
                             },
                         )?;
@@ -3222,6 +3308,9 @@ fn submit_provider_dialog(
                                     .ok_or_else(|| {
                                         anyhow::anyhow!("OpenRouter account no longer exists")
                                     })?;
+                                if !local_name.is_empty() {
+                                    account.api_key_names.insert(key_id.clone(), local_name);
+                                }
                                 account.api_key_ids.push(key_id);
                                 Ok(())
                             },
@@ -3304,6 +3393,36 @@ fn submit_provider_dialog(
                 },
             );
         }
+        ProviderDialogKind::RenameOpenRouterApiKey { account_id, key_id } => {
+            let name = inputs.name.trim().to_owned();
+            if let Err(error) =
+                persist_openrouter_accounts(actions.settings_tx.clone(), false, move |accounts| {
+                    let account = accounts
+                        .iter_mut()
+                        .find(|a| a.id == account_id)
+                        .ok_or_else(|| anyhow::anyhow!("OpenRouter account no longer exists"))?;
+                    anyhow::ensure!(
+                        account.api_key_ids.contains(&key_id),
+                        "OpenRouter API key no longer exists"
+                    );
+                    if name.is_empty() {
+                        account.api_key_names.remove(&key_id);
+                    } else {
+                        account.api_key_names.insert(key_id, name);
+                    }
+                    Ok(())
+                })
+            {
+                return fail(&format!("Could not rename the key: {error:#}"));
+            }
+            finish_dialog(
+                &actions,
+                DialogOutcome {
+                    notice: "API key renamed.".into(),
+                    expand_card: None,
+                },
+            );
+        }
         ProviderDialogKind::RemoveOpenRouterApiKey { account_id, key_id } => {
             let secret_change = crate::openrouter::AccountSecretChange::api_key(
                 account_id.clone(),
@@ -3320,6 +3439,7 @@ fn submit_provider_dialog(
                         .ok_or_else(|| anyhow::anyhow!("OpenRouter account no longer exists"))?;
                     let before = account.api_key_ids.len();
                     account.api_key_ids.retain(|id| id != &key_id);
+                    account.api_key_names.remove(&key_id);
                     anyhow::ensure!(
                         account.api_key_ids.len() != before,
                         "OpenRouter API key no longer exists"

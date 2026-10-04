@@ -941,9 +941,19 @@ fn usage_card_metrics(provider: ProviderKind, statistics: &UsageStatistics) -> E
         .map(format_usd)
         .unwrap_or_else(|| "No data".into());
     grid((
-        usage_tokens_and_cost_metric("Today", today, today_value),
-        usage_tokens_and_cost_metric(&format!("Last {period} days"), total, history_value)
-            .grid_column(1),
+        usage_tokens_and_cost_metric(
+            "Today",
+            today,
+            today_value,
+            provider == ProviderKind::OpenRouter,
+        ),
+        usage_tokens_and_cost_metric(
+            &format!("Last {period} days"),
+            total,
+            history_value,
+            provider == ProviderKind::OpenRouter,
+        )
+        .grid_column(1),
     ))
     .columns([GridLength::Star(1.0), GridLength::Star(1.0)])
     .rows([GridLength::Auto])
