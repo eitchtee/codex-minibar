@@ -39,7 +39,7 @@ const ADMIN_COST_REPORT_URL: &str = "https://api.anthropic.com/v1/organizations/
 const ADMIN_API_VERSION: &str = "2023-06-01";
 const PROFILE_SECRET_PREFIX: &str = "claude-profile-";
 const PROFILE_CREDENTIAL_HINT: &str =
-    "Remove the profile and add it again with a fresh credential in Settings > Providers > Claude.";
+    "Use Update credential for this profile in Settings > Providers > Claude.";
 const FALLBACK_CLAUDE_CODE_VERSION: &str = "2.1.280";
 const PROFILE_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
 pub const ACTIVATION_MODEL: &str = "haiku";
@@ -228,6 +228,46 @@ pub fn save_profile_credential(profile_id: &str, value: Option<&str>) -> Result<
     secrets::save(&format!("{PROFILE_SECRET_PREFIX}{profile_id}"), value)
 }
 
+pub(crate) fn load_profile_credential(profile_id: &str) -> Result<Option<String>> {
+    secrets::load(&format!("{PROFILE_SECRET_PREFIX}{profile_id}"))
+}
+
+/// Only subscription quota sources are offered by the account setup dialog.
+/// Existing Admin API profiles remain readable for compatibility.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ProfileCredentialMethod {
+    #[default]
+    BrowserSession,
+    OAuthToken,
+}
+
+impl ProfileCredentialMethod {
+    pub(crate) fn validate(self, raw: &str) -> Result<()> {
+        match (self, Credential::parse(raw)?) {
+            (Self::BrowserSession, Credential::Cookie(cookie)) => {
+                anyhow::ensure!(
+                    cookie.split(';').any(|part| part
+                        .trim()
+                        .strip_prefix("sessionKey=")
+                        .is_some_and(|value| !value.trim().is_empty())),
+                    "Paste the sessionKey value or a Cookie header containing sessionKey."
+                );
+                Ok(())
+            }
+            (Self::OAuthToken, Credential::OAuth(_)) => Ok(()),
+            (_, Credential::AdminKey(_)) => bail!(
+                "Admin API keys report API organization spending, not Claude subscription limits. Use a browser session or an OAuth token."
+            ),
+            (Self::BrowserSession, _) => {
+                bail!("This is an OAuth token. Select the OAuth token tab.")
+            }
+            (Self::OAuthToken, _) => bail!(
+                "Paste an OAuth access token starting with sk-ant-oat. For a sessionKey, select Browser session."
+            ),
+        }
+    }
+}
+
 /// Checks a pasted credential with one live read before it is saved.
 pub fn verify_credential(credential: &str) -> Result<()> {
     let mut client = ClaudeClient::new();
@@ -269,7 +309,7 @@ impl Credential {
             Ok(Self::OAuth(token.to_owned()))
         } else if lower.starts_with("sk-ant-api") {
             bail!(
-                "Standard API keys cannot report usage. Paste a sessionKey, an OAuth token, or an Admin API key."
+                "Standard API keys cannot report Claude subscription limits. Paste a sessionKey or an OAuth access token."
             )
         } else if token.is_empty() {
             bail!("Paste a credential first.")
@@ -345,9 +385,13 @@ impl ClaudeClient {
             .filter(|profile| profile.enabled)
             .cloned()
             .collect::<Vec<_>>();
-        // A single profile behaves exactly like the provider did before
-        // profiles existed: its error is the provider's error.
-        if let [profile] = enabled.as_slice() {
+        // Preserve the untouched built-in Default's original account label.
+        // Named/manual profiles need snapshots even when only one is enabled.
+        if let [profile] = enabled.as_slice()
+            && self.profiles.len() == 1
+            && profile.is_default()
+            && profile.name == "Default"
+        {
             self.snapshots.clear();
             return self.read_profile(profile);
         }
@@ -542,6 +586,27 @@ fn merge_profiles(
 /// Overlay renamed profiles onto a live snapshot. A rename is a settings-only
 /// change and must not wait for the next read.
 pub fn apply_profile_names(limits: &mut RateLimits, settings: &Settings) -> bool {
+    // A rename can arrive before the legacy single-Default reader publishes
+    // another sample. Promote its existing quota immediately, without a fetch.
+    if limits.claude_profiles.is_empty() {
+        let enabled = profiles_for_settings(settings)
+            .into_iter()
+            .filter(|profile| profile.enabled)
+            .collect::<Vec<_>>();
+        if let [profile] = enabled.as_slice()
+            && (!profile.is_default() || profile.name != "Default")
+        {
+            let mut snapshot = limits.clone();
+            snapshot.account_name = Some(profile.name.clone());
+            limits.claude_profiles.push(ClaudeProfileSnapshot {
+                id: profile.id.clone(),
+                name: profile.name.clone(),
+                limits: snapshot,
+                error: None,
+            });
+            return true;
+        }
+    }
     let mut changed = false;
     for snapshot in &mut limits.claude_profiles {
         if let Some(profile) = settings
@@ -1562,6 +1627,94 @@ mod tests {
         // A standard API key would otherwise be sent to claude.ai as a cookie.
         assert!(Credential::parse("sk-ant-api03-x").is_err());
         assert!(Credential::parse("  ").is_err());
+    }
+
+    #[test]
+    fn subscription_setup_validates_the_selected_method_before_fetching() {
+        use ProfileCredentialMethod::{BrowserSession, OAuthToken};
+        assert!(BrowserSession.validate("sk-ant-sid01-fixture").is_ok());
+        assert!(
+            BrowserSession
+                .validate("Cookie: other=1; sessionKey=fixture")
+                .is_ok()
+        );
+        assert!(OAuthToken.validate("Bearer sk-ant-oat01-fixture").is_ok());
+        assert!(BrowserSession.validate("sk-ant-oat01-fixture").is_err());
+        assert!(OAuthToken.validate("sessionKey=fixture").is_err());
+        assert!(BrowserSession.validate("other=1").is_err());
+        assert!(BrowserSession.validate("sessionKey=").is_err());
+        for method in [BrowserSession, OAuthToken] {
+            assert!(method.validate("sk-ant-admin01-fixture").is_err());
+            assert!(method.validate("sk-ant-api03-fixture").is_err());
+            assert!(method.validate(" ").is_err());
+        }
+    }
+
+    #[test]
+    fn renaming_the_only_default_profile_promotes_its_live_sample_immediately() {
+        let mut limits = RateLimits {
+            primary: LimitWindow {
+                used_percent: Some(42),
+                ..Default::default()
+            },
+            account_name: Some("Service name".into()),
+            ..Default::default()
+        };
+        assert!(!apply_profile_names(&mut limits, &Settings::default()));
+        let mut settings = Settings::default();
+        settings.claude_profiles = profiles_for_settings(&settings);
+        settings.claude_profiles[0].name = "Personal".into();
+        assert!(apply_profile_names(&mut limits, &settings));
+        let profile = &limits.claude_profiles[0];
+        assert_eq!(profile.name, "Personal");
+        assert_eq!(profile.limits.account_name.as_deref(), Some("Personal"));
+        assert_eq!(profile.limits.primary.used_percent, Some(42));
+        assert!(profile.limits.claude_profiles.is_empty());
+        assert!(!apply_profile_names(&mut limits, &settings));
+        settings.claude_profiles[0].name = "Work".into();
+        assert!(apply_profile_names(&mut limits, &settings));
+        assert_eq!(
+            limits.claude_profiles[0].limits.account_name.as_deref(),
+            Some("Work")
+        );
+    }
+
+    #[test]
+    fn one_manual_profile_keeps_its_identity_when_default_is_disabled() {
+        let profile = ClaudeProfile {
+            id: "work".into(),
+            name: "Work".into(),
+            enabled: true,
+        };
+        let sample = RateLimits {
+            primary: LimitWindow {
+                used_percent: Some(20),
+                ..Default::default()
+            },
+            account_name: Some("Organization".into()),
+            ..Default::default()
+        };
+        let mut limits =
+            merge_profiles(vec![(profile.clone(), Ok(sample))], &[], Utc::now()).unwrap();
+        assert_eq!(limits.claude_profiles.len(), 1);
+        assert_eq!(limits.claude_profiles[0].id, "work");
+        assert_eq!(
+            limits.claude_profiles[0].limits.account_name.as_deref(),
+            Some("Work")
+        );
+        let mut settings = Settings::default();
+        settings.claude_profiles = profiles_for_settings(&settings);
+        settings.claude_profiles[0].enabled = false;
+        settings.claude_profiles.push(ClaudeProfile {
+            name: "Renamed".into(),
+            ..profile
+        });
+        assert!(apply_profile_names(&mut limits, &settings));
+        assert_eq!(limits.claude_profiles[0].name, "Renamed");
+        assert_eq!(
+            limits.claude_profiles[0].limits.primary.used_percent,
+            Some(20)
+        );
     }
 
     #[test]

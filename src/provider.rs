@@ -57,6 +57,7 @@ pub fn start_provider_worker(
     // overwrite the replacement worker's state.
     let worker_revision = match provider {
         ProviderKind::OpenRouter => settings.openrouter_credentials_revision,
+        ProviderKind::Claude => settings.claude_credentials_revision,
         _ => 0,
     };
     let automatic_activation = automatic_activation(provider, settings);

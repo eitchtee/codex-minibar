@@ -9,6 +9,7 @@ pub(super) fn provider_worker_event_is_current(
 ) -> bool {
     let current_revision = match provider {
         ProviderKind::OpenRouter => ui.openrouter_credentials_revision,
+        ProviderKind::Claude => ui.claude_credentials_revision,
         _ => 0,
     };
     worker_revision == current_revision
@@ -117,6 +118,7 @@ pub(super) fn start_background_bridge(
         // Keyed by provider id, or by profile for a multi-profile provider.
         let mut limit_notifications = HashMap::<String, LimitNotificationTracker>::new();
         let mut notified_claude_profiles = state.settings.claude_profiles.clone();
+        let mut notified_claude_revision = state.settings.claude_credentials_revision;
         let mut pending_auto_activation_successes = HashSet::<ProviderKind>::new();
         let mut forced_reset_notified_ids = HashSet::<String>::new();
         let mut usage_clear_generation = 0_u64;
@@ -171,6 +173,7 @@ pub(super) fn start_background_bridge(
             codex_path: state.settings.codex_path.clone(),
             claude_path: state.settings.claude_path.clone(),
             claude_profiles: state.settings.claude_profiles.clone(),
+            claude_credentials_revision: state.settings.claude_credentials_revision,
             cursor_path: state.settings.cursor_path.clone(),
             antigravity_path: state.settings.antigravity_path.clone(),
             grok_path: state.settings.grok_path.clone(),
@@ -260,7 +263,9 @@ pub(super) fn start_background_bridge(
             };
             let claude_profiles_changed =
                 read_set(&ui.claude_profiles) != read_set(&settings.claude_profiles);
-            if claude_profiles_changed {
+            let claude_credentials_changed =
+                ui.claude_credentials_revision != settings.claude_credentials_revision;
+            if claude_profiles_changed || claude_credentials_changed {
                 // Never show a removed or disabled profile's numbers while
                 // the restarted worker makes its first read.
                 state.replace_limits(ProviderKind::Claude, RateLimits::default());
@@ -322,7 +327,9 @@ pub(super) fn start_background_bridge(
                 (ProviderKind::Codex, settings.codex_path != ui.codex_path),
                 (
                     ProviderKind::Claude,
-                    settings.claude_path != ui.claude_path || claude_profiles_changed,
+                    settings.claude_path != ui.claude_path
+                        || claude_profiles_changed
+                        || claude_credentials_changed,
                 ),
                 (ProviderKind::Cursor, settings.cursor_path != ui.cursor_path),
                 (
@@ -344,6 +351,7 @@ pub(super) fn start_background_bridge(
             ui.codex_path = settings.codex_path.clone();
             ui.claude_path = settings.claude_path.clone();
             ui.claude_profiles = settings.claude_profiles.clone();
+            ui.claude_credentials_revision = settings.claude_credentials_revision;
             ui.cursor_path = settings.cursor_path.clone();
             ui.antigravity_path = settings.antigravity_path.clone();
             ui.grok_path = settings.grok_path.clone();
@@ -724,7 +732,9 @@ pub(super) fn start_background_bridge(
                         crate::openrouter::apply_account_names(&mut limits, &live_settings);
                     }
                     // The running reader still has the names it started with.
-                    crate::claude::apply_profile_names(&mut limits, &live_settings);
+                    if provider == ProviderKind::Claude {
+                        crate::claude::apply_profile_names(&mut limits, &live_settings);
+                    }
                     // Publish once, then let both native tray and WinUI render
                     // from that exact snapshot.
                     state.replace_limits(provider, limits);
@@ -755,11 +765,13 @@ pub(super) fn start_background_bridge(
                     // itself and named in its toasts. The first profile is
                     // also the provider-level snapshot observed here.
                     if provider == ProviderKind::Claude
-                        && notified_claude_profiles != ui.claude_profiles
+                        && (notified_claude_profiles != ui.claude_profiles
+                            || notified_claude_revision != ui.claude_credentials_revision)
                     {
                         // A tracker primed on one account must not compare
                         // its reset time with a different account's.
                         notified_claude_profiles = ui.claude_profiles.clone();
+                        notified_claude_revision = ui.claude_credentials_revision;
                         limit_notifications
                             .retain(|key, _| !key.starts_with(ProviderKind::Claude.id()));
                     }

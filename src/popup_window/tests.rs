@@ -708,6 +708,7 @@ fn every_limits_sample_forces_a_reactive_state_change() {
 fn credential_worker_events_are_accepted_only_for_the_current_revision() {
     let ui = UiState {
         openrouter_credentials_revision: 7,
+        claude_credentials_revision: 3,
         ..UiState::default()
     };
 
@@ -720,6 +721,21 @@ fn credential_worker_events_are_accepted_only_for_the_current_revision() {
         &ui,
         ProviderKind::OpenRouter,
         6
+    ));
+    assert!(bridge::provider_worker_event_is_current(
+        &ui,
+        ProviderKind::Claude,
+        3
+    ));
+    assert!(!bridge::provider_worker_event_is_current(
+        &ui,
+        ProviderKind::Claude,
+        2
+    ));
+    assert!(!bridge::provider_worker_event_is_current(
+        &ui,
+        ProviderKind::Claude,
+        0
     ));
     assert!(bridge::provider_worker_event_is_current(
         &ui,

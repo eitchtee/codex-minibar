@@ -1742,6 +1742,10 @@ pub struct Settings {
     /// implied until it is saved here; see `claude::profiles_for_settings`.
     #[serde(default)]
     pub claude_profiles: Vec<ClaudeProfile>,
+    /// Reject queued results and refresh the running Claude reader after a
+    /// profile's protected credential or enabled account set changes.
+    #[serde(default)]
+    pub claude_credentials_revision: u64,
     pub tray_widgets: Vec<TrayWidget>,
     pub notifications: NotificationSettings,
     pub history_retention_days: u16,
@@ -1802,6 +1806,7 @@ impl Default for Settings {
             openrouter_credentials_revision: 0,
             openrouter_accounts: Vec::new(),
             claude_profiles: Vec::new(),
+            claude_credentials_revision: 0,
             // An empty list intentionally means "show the ordinary app icon".
             tray_widgets: Vec::new(),
             notifications: NotificationSettings::default(),
